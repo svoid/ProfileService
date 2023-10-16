@@ -394,7 +394,6 @@ local ProfileService = {
 	_AutoSaveList = {}, -- {profile, ...} -- loaded profile table which will be circularly auto-saved
 
 	_IssueQueue = {}, -- [table] {issueTime, ...}
-	--TODO: unused
 	_CriticalStateStart = 0, -- [number] 0 = no critical state / os.clock() = critical state start
 
 	-- Debug:
@@ -461,8 +460,6 @@ local LoadIndex = 0
 
 local ActiveProfileLoadJobs = 0 -- Number of active threads that are loading in profiles
 local ActiveProfileSaveJobs = 0 -- Number of active threads that are saving profiles
-
-local CriticalStateStart = 0 -- os.clock()
 
 local IsStudio = RunService:IsStudio()
 local IsLiveCheckActive = false
@@ -860,7 +857,7 @@ local function ReleaseProfileInternally(profile)
 	local profileStore = profile._ProfileStore
 	local loadedProfiles = profile._IsUserMock == true and profileStore._MockLoadedProfiles or profileStore._LoadedProfiles
 	loadedProfiles[profile._ProfileKey] = nil
-	
+
 	if next(profileStore._LoadedProfiles) == nil and next(profileStore._MockLoadedProfiles) == nil then -- ProfileStore has turned inactive
 		local index = table.find(ActiveProfileStores, profileStore)
 		if index ~= nil then
@@ -887,10 +884,10 @@ local function CheckForNewGlobalUpdates(profile, oldGlobalUpdatesData, newGlobal
 	local globalUpdatesObject = profile.GlobalUpdates -- [GlobalUpdates]
 	local pendingUpdateLock = globalUpdatesObject._PendingUpdateLock -- {updateId, ...}
 	local pendingUpdateClear = globalUpdatesObject._PendingUpdateClear -- {updateId, ...}
-	
+
 	-- "old_" or "new_" globalUpdatesData = {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
 	for _, newGlobalUpdate in ipairs(newGlobalUpdatesData[2]) do
-		
+
 		-- Find old global update with the same updateId:
 		local oldGlobalUpdate
 		for _, globalUpdate in ipairs(oldGlobalUpdatesData[2]) do
@@ -910,7 +907,7 @@ local function CheckForNewGlobalUpdates(profile, oldGlobalUpdatesData, newGlobal
 			if newGlobalUpdate[3] == false then
 				-- Check if update is not pending to be locked: (Preventing firing new active update listeners more than necessary)
 				local isPendingLock = false
-				
+
 				for _, updateId in ipairs(pendingUpdateLock) do
 					if newGlobalUpdate[1] == updateId then
 						isPendingLock = true
@@ -928,7 +925,7 @@ local function CheckForNewGlobalUpdates(profile, oldGlobalUpdatesData, newGlobal
 			if newGlobalUpdate[3] == true then
 				-- Check if update is not pending to be cleared: (Preventing firing new locked update listeners after marking a locked update for clearing)
 				local isPendingClear = false
-				
+
 				for _, updateId in ipairs(pendingUpdateClear) do
 					if newGlobalUpdate[1] == updateId then
 						isPendingClear = true
@@ -965,7 +962,7 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 		)
 		error("PROFILE DATA CORRUPTED DURING RUNTIME! Profile: " .. profile:Identify())
 	end
-	
+
 	if releaseFromSession == true and isOverwriting ~= true then
 		ReleaseProfileInternally(profile)
 	end
@@ -1074,21 +1071,21 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 			-- Setting MetaData:
 			local sessionMetaData = profile.MetaData
 			local latestMetaData = loadedData.MetaData
-			
+
 			for key in next, SETTINGS.MetaTagsUpdatedValues do
 				sessionMetaData[key] = latestMetaData[key]
 			end
-			
+
 			sessionMetaData.MetaTagsLatest = latestMetaData.MetaTags
 			-- 5) Check if session still owns the profile: --
 			local activeSession = loadedData.MetaData.ActiveSession
 			local sessionLoadCount = loadedData.MetaData.SessionLoadCount
 			local sessionOwnsProfile = false
-			
+
 			if type(activeSession) == "table" then
 				sessionOwnsProfile = IsThisSession(activeSession) and sessionLoadCount == lastSessionLoadCount
 			end
-			
+
 			local is_active = profile:IsActive()
 			if sessionOwnsProfile == true then
 				-- 6) Check for new global updates: --
@@ -1188,7 +1185,7 @@ function GlobalUpdates:ListenToNewActiveUpdate(listener) --> [ScriptConnection] 
 	if type(listener) ~= "function" then
 		error("Only a function can be set as listener in GlobalUpdates:ListenToNewActiveUpdate()")
 	end
-	
+
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
 		error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
@@ -1208,7 +1205,7 @@ function GlobalUpdates:ListenToNewLockedUpdate(listener) --> [ScriptConnection] 
 	if type(listener) ~= "function" then
 		error("Only a function can be set as listener in GlobalUpdates:ListenToNewLockedUpdate()")
 	end
-	
+
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
 		error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
@@ -1228,7 +1225,7 @@ function GlobalUpdates:LockActiveUpdate(updateId)
 	if type(updateId) ~= "number" then
 		error("Invalid updateId")
 	end
-	
+
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
 		error("Can't lock active global updates in ProfileStore:GlobalUpdateProfileAsync()")
@@ -1237,7 +1234,7 @@ function GlobalUpdates:LockActiveUpdate(updateId)
 	elseif profile:IsActive() == false then -- Check if profile is expired
 		error("PROFILE EXPIRED - Can't lock active global updates")
 	end
-	
+
 	-- Check if global update exists with given updateId
 	local globalUpdateExists = nil
 	for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
@@ -1246,7 +1243,7 @@ function GlobalUpdates:LockActiveUpdate(updateId)
 			break
 		end
 	end
-	
+
 	if globalUpdateExists ~= nil then
 		local isPendingLock = false
 		for _, lock_update_id in ipairs(self._PendingUpdateLock) do
@@ -1267,7 +1264,7 @@ function GlobalUpdates:ClearLockedUpdate(updateId)
 	if type(updateId) ~= "number" then
 		error("Invalid updateId")
 	end
-	
+
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
 		error("Can't clear locked global updates in ProfileStore:GlobalUpdateProfileAsync()")
@@ -1276,7 +1273,7 @@ function GlobalUpdates:ClearLockedUpdate(updateId)
 	elseif profile:IsActive() == false then -- Check if profile is expired
 		error("PROFILE EXPIRED - Can't clear locked global updates")
 	end
-	
+
 	-- Check if global update exists with given updateId
 	local globalUpdateExists = nil
 	for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
@@ -1307,7 +1304,7 @@ function GlobalUpdates:AddActiveUpdate(updateData)
 	if type(updateData) ~= "table" then
 		error("Invalid updateData")
 	end
-	
+
 	if self._NewActiveUpdateListeners ~= nil then
 		error("Can't add active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._UpdateHandlerMode ~= true then
@@ -1326,7 +1323,7 @@ function GlobalUpdates:ChangeActiveUpdate(updateId, updateData)
 	if type(updateId) ~= "number" then
 		error("Invalid updateId")
 	end
-	
+
 	if type(updateData) ~= "table" then
 		error("Invalid updateData")
 	end
@@ -1336,7 +1333,7 @@ function GlobalUpdates:ChangeActiveUpdate(updateId, updateData)
 	elseif self._UpdateHandlerMode ~= true then
 		error("Can't change active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
 	end
-	
+
 	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
 	local updatesLatest = self._UpdatesLatest
 	local getGlobalUpdate = nil
@@ -1362,13 +1359,13 @@ function GlobalUpdates:ClearActiveUpdate(updateId)
 	if type(updateId) ~= "number" then
 		error("Invalid updateId argument")
 	end
-	
+
 	if self._NewActiveUpdateListeners ~= nil then
 		error("Can't clear active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._UpdateHandlerMode ~= true then
 		error("Can't clear active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
 	end
-	
+
 	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
 	local updatesLatest = self._UpdatesLatest
 	local getGlobalUpdateIndex = nil
@@ -1781,7 +1778,7 @@ function ProfileStore:LoadProfileAsync(profileKey, notReleasedHandler, useMock) 
 		local loadId = LoadIndex + 1
 		LoadIndex = loadId
 		local profileLoadJob = profileLoadJobs[profileKey] -- {loadId, {loadedData, keyInfo} or nil}
-		
+
 		if profileLoadJob ~= nil then
 			profileLoadJob[1] = loadId -- Yoink load job
 			while profileLoadJob[2] == nil do -- Wait for job to finish
@@ -2382,13 +2379,13 @@ RunService.Heartbeat:Connect(function()
 		if #IssueQueue >= SETTINGS.IssueCountForCriticalState then
 			ProfileService.CriticalState = true
 			ProfileService.CriticalStateSignal:Fire(true)
-			CriticalStateStart = os.clock()
+			ProfileService._CriticalStateStart = os.clock()
 			warn("[ProfileService]: Entered critical state")
 		end
 	else
 		if #IssueQueue >= SETTINGS.IssueCountForCriticalState then
-			CriticalStateStart = os.clock()
-		elseif os.clock() - CriticalStateStart > SETTINGS.CriticalStateLast then
+			ProfileService._CriticalStateStart = os.clock()
+		elseif os.clock() - ProfileService._CriticalStateStart > SETTINGS.CriticalStateLast then
 			ProfileService.CriticalState = false
 			ProfileService.CriticalStateSignal:Fire(false)
 			warn("[ProfileService]: Critical state ended")
@@ -2418,7 +2415,7 @@ task.spawn(function()
 			-- Clone AutoSaveList to a new table because AutoSaveList changes when profiles are released:
 			local onCloseSaveJobCount = 0
 			local active_profiles = {}
-			
+
 			for index, profile in ipairs(AutoSaveList) do
 				active_profiles[index] = profile
 			end
