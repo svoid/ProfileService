@@ -1437,7 +1437,6 @@ local Profile = {} do
 		_LoadTimestamp = os.clock(),
 		
 		_IsUserMock = false, -- ProfileStore.Mock
-		_mock_key_info = {},
 	--]]
 
 
@@ -1666,7 +1665,26 @@ local ProfileVersionQuery = {} do
 		_IsQueryYielded = false,
 		_QueryQueue = {},
 	--]]
+	
+	function ProfileVersionQuery.new(profileStore, profileKey, sortDirection, minDate, maxDate)
+		local self = setmetatable({}, ProfileVersionQuery)
+
+		self._ProfileStore = self
+		self._ProfileKey = profileKey
+		self._SortDirection = sortDirection
+		self._MinDate = minDate
+		self._MaxDate = maxDate
+
+		self._QueryPages = nil
+		self._QueryIndex = 0
+		self._QueryFailure = false
+
+		self._IsQueryYielded = false
+		self._QueryQueue = {}
 		
+		return self
+	end
+	
 	function ProfileVersionQuery:_MoveQueue()
 		while #self._QueryQueue > 0 do
 			local queue_entry = table.remove(self._QueryQueue, 1)
@@ -2252,25 +2270,8 @@ local ProfileStore = {} do
 
 		minDate = typeof(minDate) == "DateTime" and minDate.UnixTimestampMillis or minDate
 		maxDate = typeof(maxDate) == "DateTime" and maxDate.UnixTimestampMillis or maxDate
-
-		local profileVersionQuery = {
-			_ProfileStore = self,
-			_ProfileKey = profileKey,
-			_SortDirection = sortDirection,
-			_MinDate = minDate,
-			_MaxDate = maxDate,
-
-			_QueryPages = nil,
-			_QueryIndex = 0,
-			_QueryFailure = false,
-
-			_IsQueryYielded = false,
-			_QueryQueue = {},
-		}
-		setmetatable(profileVersionQuery, ProfileVersionQuery)
-
-		return profileVersionQuery
-
+		
+		return ProfileVersionQuery.new(self, profileKey, sortDirection, minDate, maxDate)
 	end
 
 	function ProfileStore:WipeProfileAsync(profileKey, useMock) --> is_wipe_successful [bool]
