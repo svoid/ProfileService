@@ -1761,7 +1761,58 @@ local ProfileStore = {} do
 		_MockLoadedProfiles = {[profileKey] = Profile, ...},
 		_MockProfileLoadJobs = {[profileKey] = {loadId, loadedData}, ...},
 	--]]
+	
+	local Mock = {} do
+		
+		function Mock.new(profileStore)
+			local self = setmetatable({}, Mock)
+			
+			self.ProfileStore = profileStore
+			
+			return self
+		end
+		
+		function Mock:LoadProfileAsync(profileKey, notReleasedHandler)
+			return self.ProfileStore:LoadProfileAsync(profileKey, notReleasedHandler, UseMockTag)
+		end
+		
+		function Mock:GlobalUpdateProfileAsync(profileKey, updateHandler)
+			return self.ProfileStore:GlobalUpdateProfileAsync(profileKey, updateHandler, UseMockTag)
+		end
+				
+		function Mock:ViewProfileAsync(profileKey, version)
+			return self.ProfileStore:ViewProfileAsync(profileKey, version, UseMockTag)
+		end
+					
+		function Mock:FindProfileVersionAsync(profileKey, sortDirection, minDate, maxDate)
+			return self.ProfileStore:FindProfileVersionAsync(profileKey, sortDirection, minDate, maxDate, UseMockTag)
+		end
+						
+		function Mock:WipeProfileAsync(profileKey)
+			return self.ProfileStore:WipeProfileAsync(profileKey, UseMockTag)
+		end
+	end
+	
+	function ProfileStore.new(profileStoreName, profileStoreScope, profileTemplate)
+		local self = setmetatable({}, ProfileStore)
+		
+		self.Mock = Mock.new(self)
+		
+		self._ProfileStoreName = profileStoreName
+		self._ProfileStoreScope = profileStoreScope
+		self._ProfileStoreLookup = profileStoreName .. "\0" .. (profileStoreScope or "")
 
+		self._ProfileTemplate = profileTemplate
+		self._GlobalDataStore = nil
+		self._LoadedProfiles = {}
+		self._ProfileLoadJobs = {}
+		self._MockLoadedProfiles = {}
+		self._MockProfileLoadJobs = {}
+		self._IsPending = false
+
+		return self
+	end
+	
 	function ProfileStore:LoadProfileAsync(profileKey, notReleasedHandler, useMock) --> [Profile / nil] notReleasedHandler(placeId, gameJobId)
 
 		notReleasedHandler = notReleasedHandler or "ForceLoad"
@@ -2285,40 +2336,7 @@ function ProfileService.GetProfileStore(profileStoreIndex, profileTemplate) --> 
 		error("Invalid profileTemplate")
 	end
 
-	local profileStore
-	profileStore = {
-		Mock = {
-			LoadProfileAsync = function(_, profileKey, notReleasedHandler)
-				return profileStore:LoadProfileAsync(profileKey, notReleasedHandler, UseMockTag)
-			end,
-			GlobalUpdateProfileAsync = function(_, profileKey, updateHandler)
-				return profileStore:GlobalUpdateProfileAsync(profileKey, updateHandler, UseMockTag)
-			end,
-			ViewProfileAsync = function(_, profileKey, version)
-				return profileStore:ViewProfileAsync(profileKey, version, UseMockTag)
-			end,
-			FindProfileVersionAsync = function(_, profileKey, sortDirection, minDate, maxDate)
-				return profileStore:FindProfileVersionAsync(profileKey, sortDirection, minDate, maxDate, UseMockTag)
-			end,
-			WipeProfileAsync = function(_, profileKey)
-				return profileStore:WipeProfileAsync(profileKey, UseMockTag)
-			end
-		},
-
-		_ProfileStoreName = profileStoreName,
-		_ProfileStoreScope = profileStoreScope,
-		_ProfileStoreLookup = profileStoreName .. "\0" .. (profileStoreScope or ""),
-
-		_ProfileTemplate = profileTemplate,
-		_GlobalDataStore = nil,
-		_LoadedProfiles = {},
-		_ProfileLoadJobs = {},
-		_MockLoadedProfiles = {},
-		_MockProfileLoadJobs = {},
-		_IsPending = false,
-	}
-
-	setmetatable(profileStore, ProfileStore)
+	local profileStore = ProfileStore.new(profileStoreName, profileStoreScope, profileTemplate)
 
 	if IsLiveCheckActive == true then
 		profileStore._IsPending = true
