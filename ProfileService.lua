@@ -486,6 +486,8 @@ local CustomWriteQueue = {
 
 ----- Utils -----
 
+local EMPTY_FUNCTION = function()end
+
 local function DeepCopyTable(t)
 	local copy = {}
 	for key, value in next, t do
@@ -563,6 +565,7 @@ local function CustomWriteQueueAsync(callback, store, key) --> ... -- Passed ret
 	if CustomWriteQueue[store] == nil then
 		CustomWriteQueue[store] = {}
 	end
+	
 	if CustomWriteQueue[store][key] == nil then
 		CustomWriteQueue[store][key] = {LastWrite = 0, Queue = {}, CleanupJob = nil}
 	end
@@ -811,6 +814,7 @@ local function StandardProfileUpdateAsyncDataStore(profileStore, profileKey, upd
 			)
 		end
 	end)
+	
 	if success == true and type(loadedData) == "table" then
 		-- Corruption handling:
 		if loadedData.WasCorrupted == true and isGetCall ~= true then
@@ -909,7 +913,8 @@ local function CheckForNewGlobalUpdates(profile, oldGlobalUpdatesData, newGlobal
 		if oldGlobalUpdate == nil or newGlobalUpdate[2] > oldGlobalUpdate[2] or newGlobalUpdate[3] ~= oldGlobalUpdate[3] then
 			isNew = true
 		end
-		if isNew == true then
+		
+		if isNew then
 			-- Active global updates:
 			if newGlobalUpdate[3] == false then
 				-- Check if update is not pending to be locked: (Preventing firing new active update listeners more than necessary)
@@ -976,12 +981,16 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 
 	ActiveProfileSaveJobs += 1
 	local lastSessionLoadCount = profile.MetaData.SessionLoadCount
+	
 	-- Compare "SessionLoadCount" when writing to profile to prevent a rare case of repeat last save when the profile is loaded on the same server again
 	local repeatSaveFlag = true -- Released Profile save calls have to repeat until they succeed
-	while repeatSaveFlag == true do
+	
+	while repeatSaveFlag do
+		
 		if releaseFromSession ~= true then
 			repeatSaveFlag = false
 		end
+		
 		local loadedData, keyInfo = StandardProfileUpdateAsyncDataStore(
 			profile._ProfileStore,
 			profile._ProfileKey,
@@ -991,7 +1000,7 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 				EditProfile = function(latestData)
 
 					local sessionOwnsProfile = false
-					local force_load_pending = false
+					local forceLoadPending = false
 
 					if isOverwriting ~= true then
 						-- 1) Check if this session still owns the profile: --
@@ -1003,7 +1012,7 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 							sessionOwnsProfile = IsThisSession(activeSession) and sessionLoadCount == lastSessionLoadCount
 						end
 						if type(forceLoadSession) == "table" then
-							force_load_pending = not IsThisSession(forceLoadSession)
+							forceLoadPending = not IsThisSession(forceLoadSession)
 						end
 					else
 						sessionOwnsProfile = true
@@ -1047,7 +1056,7 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 						if isOverwriting ~= true then
 							latestData.MetaData.MetaTags = profile.MetaData.MetaTags -- MetaData.MetaTags is the only actively savable component of MetaData
 							latestData.MetaData.LastUpdate = os.time()
-							if releaseFromSession == true or force_load_pending == true then
+							if releaseFromSession == true or forceLoadPending == true then
 								latestData.MetaData.ActiveSession = nil
 							end
 						else
@@ -1067,14 +1076,17 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 			if isOverwriting == true then break end
 
 			repeatSaveFlag = false
+			
 			-- 4) Set latest data in profile: --
 			-- Updating DataStoreKeyInfo:
 			profile.KeyInfo = keyInfo
+			
 			-- Setting global updates:
 			local globalUpdatesObject = profile.GlobalUpdates -- [GlobalUpdates]
 			local oldGlobalUpdatesData = globalUpdatesObject._UpdatesLatest
 			local newGlobalUpdatesData = loadedData.GlobalUpdates
 			globalUpdatesObject._UpdatesLatest = newGlobalUpdatesData
+			
 			-- Setting MetaData:
 			local sessionMetaData = profile.MetaData
 			local latestMetaData = loadedData.MetaData
@@ -1084,6 +1096,7 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 			end
 
 			sessionMetaData.MetaTagsLatest = latestMetaData.MetaTags
+			
 			-- 5) Check if session still owns the profile: --
 			local activeSession = loadedData.MetaData.ActiveSession
 			local sessionLoadCount = loadedData.MetaData.SessionLoadCount
@@ -1113,11 +1126,13 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 					profile._HopReadyListeners:Fire()
 				end
 			end
+			
 			-- Signaling MetaTagsUpdated listeners after a possible external profile release was handled:
 			profile.MetaTagsUpdated:Fire(profile.MetaData.MetaTagsLatest)
 			-- Signaling KeyInfoUpdated listeners:
 			profile.KeyInfoUpdated:Fire(keyInfo)
-		elseif repeatSaveFlag == true then
+			
+		elseif repeatSaveFlag then
 			task.wait() -- Prevent infinite loop in case DataStore API does not yield
 		end
 	end
@@ -1126,9 +1141,9 @@ end
 
 ----- Public functions -----
 
--- GlobalUpdates object:
+local GlobalUpdates = {} do
+	GlobalUpdates.__index = GlobalUpdates
 
-local GlobalUpdates = {
 	--[[
 		_UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
 		_PendingUpdateLock = {updateId, ...} / nil, -- [table / nil]
@@ -1141,35 +1156,38 @@ local GlobalUpdates = {
 		
 		_UpdateHandlerMode = true / nil, -- [bool / nil]
 	--]]
-}
-GlobalUpdates.__index = GlobalUpdates
 
--- ALWAYS PUBLIC:
-function GlobalUpdates:GetActiveUpdates() --> [table] {{updateId, updateData}, ...}
-	local queryList = {}
-	for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
-		if globalUpdate[3] == false then
-			local isPendingLock = false
+	-- ALWAYS PUBLIC:
+	function GlobalUpdates:GetActiveUpdates() --> [table] {{updateId, updateData}, ...}
+		local queryList = {}
+		
+		for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
+			if globalUpdate[3] ~= false then continue end
+				
+			local isPendingLocked = false
 			if self._PendingUpdateLock ~= nil then
 				for _, updateId in ipairs(self._PendingUpdateLock) do
 					if globalUpdate[1] == updateId then
-						isPendingLock = true -- Exclude global updates pending to be locked
+						isPendingLocked = true -- Exclude global updates pending to be locked
 						break
 					end
 				end
 			end
-			if isPendingLock == false then
+			
+			if not isPendingLocked then
 				table.insert(queryList, {globalUpdate[1], globalUpdate[4]})
 			end
 		end
+		
+		return queryList
 	end
-	return queryList
-end
 
-function GlobalUpdates:GetLockedUpdates() --> [table] {{updateId, updateData}, ...}
-	local queryList = {}
-	for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
-		if globalUpdate[3] == true then
+	function GlobalUpdates:GetLockedUpdates() --> [table] {{updateId, updateData}, ...}
+		local queryList = {}
+		
+		for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
+			if globalUpdate[3] ~= true then continue end
+			
 			local isPendingClear = false
 			if self._PendingUpdateClear ~= nil then
 				for _, updateId in ipairs(self._PendingUpdateClear) do
@@ -1179,225 +1197,229 @@ function GlobalUpdates:GetLockedUpdates() --> [table] {{updateId, updateData}, .
 					end
 				end
 			end
+			
 			if isPendingClear == false then
 				table.insert(queryList, {globalUpdate[1], globalUpdate[4]})
 			end
 		end
-	end
-	return queryList
-end
-
--- ONLY WHEN FROM "Profile.GlobalUpdates":
-function GlobalUpdates:ListenToNewActiveUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
-	if type(listener) ~= "function" then
-		error("Only a function can be set as listener in GlobalUpdates:ListenToNewActiveUpdate()")
+		
+		return queryList
 	end
 
-	local profile = self._Profile
-	if self._UpdateHandlerMode == true then
-		error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
-	elseif self._NewActiveUpdateListeners == nil then
-		error("Can't listen to new global updates in view mode")
-	elseif profile:IsActive() == false then -- Check if profile is expired
-		return { -- Do not connect listener if the profile is expired
-			Disconnect = function() end,
-		}
-	end
-
-	-- Connect listener:
-	return self._NewActiveUpdateListeners:Connect(listener)
-end
-
-function GlobalUpdates:ListenToNewLockedUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
-	if type(listener) ~= "function" then
-		error("Only a function can be set as listener in GlobalUpdates:ListenToNewLockedUpdate()")
-	end
-
-	local profile = self._Profile
-	if self._UpdateHandlerMode == true then
-		error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
-	elseif self._NewLockedUpdateListeners == nil then
-		error("Can't listen to new global updates in view mode")
-	elseif profile:IsActive() == false then -- Check if profile is expired
-		return { -- Do not connect listener if the profile is expired
-			Disconnect = function() end,
-		}
-	end
-
-	-- Connect listener:
-	return self._NewLockedUpdateListeners:Connect(listener)
-end
-
-function GlobalUpdates:LockActiveUpdate(updateId)
-	if type(updateId) ~= "number" then
-		error("Invalid updateId")
-	end
-
-	local profile = self._Profile
-	if self._UpdateHandlerMode == true then
-		error("Can't lock active global updates in ProfileStore:GlobalUpdateProfileAsync()")
-	elseif self._PendingUpdateLock == nil then
-		error("Can't lock active global updates in view mode")
-	elseif profile:IsActive() == false then -- Check if profile is expired
-		error("PROFILE EXPIRED - Can't lock active global updates")
-	end
-
-	-- Check if global update exists with given updateId
-	local globalUpdateExists = nil
-	for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
-		if globalUpdate[1] == updateId then
-			globalUpdateExists = globalUpdate
-			break
+	-- ONLY WHEN FROM "Profile.GlobalUpdates":
+	function GlobalUpdates:ListenToNewActiveUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
+		if type(listener) ~= "function" then
+			error("Only a function can be set as listener in GlobalUpdates:ListenToNewActiveUpdate()")
 		end
+
+		local profile = self._Profile
+		if self._UpdateHandlerMode == true then
+			error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		elseif self._NewActiveUpdateListeners == nil then
+			error("Can't listen to new global updates in view mode")
+		elseif profile:IsActive() == false then -- Check if profile is expired
+			-- Do not connect listener if the profile is expired
+			return {Disconnect = EMPTY_FUNCTION}
+		end
+
+		-- Connect listener:
+		return self._NewActiveUpdateListeners:Connect(listener)
 	end
 
-	if globalUpdateExists ~= nil then
-		local isPendingLock = false
-		for _, lock_update_id in ipairs(self._PendingUpdateLock) do
-			if updateId == lock_update_id then
-				isPendingLock = true -- Exclude global updates pending to be locked
+	function GlobalUpdates:ListenToNewLockedUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
+		if type(listener) ~= "function" then
+			error("Only a function can be set as listener in GlobalUpdates:ListenToNewLockedUpdate()")
+		end
+
+		local profile = self._Profile
+		if self._UpdateHandlerMode == true then
+			error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		elseif self._NewLockedUpdateListeners == nil then
+			error("Can't listen to new global updates in view mode")
+		elseif profile:IsActive() == false then -- Check if profile is expired
+			-- Do not connect listener if the profile is expired
+			return {Disconnect = EMPTY_FUNCTION}
+		end
+
+		-- Connect listener:
+		return self._NewLockedUpdateListeners:Connect(listener)
+	end
+
+	function GlobalUpdates:LockActiveUpdate(updateId)
+		if type(updateId) ~= "number" then
+			error("Invalid updateId")
+		end
+
+		local profile = self._Profile
+		if self._UpdateHandlerMode == true then
+			error("Can't lock active global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		elseif self._PendingUpdateLock == nil then
+			error("Can't lock active global updates in view mode")
+		elseif profile:IsActive() == false then -- Check if profile is expired
+			error("PROFILE EXPIRED - Can't lock active global updates")
+		end
+
+		-- Check if global update exists with given updateId
+		local globalUpdateExists = nil
+		for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
+			if globalUpdate[1] == updateId then
+				globalUpdateExists = globalUpdate
 				break
 			end
 		end
-		if isPendingLock == false and globalUpdateExists[3] == false then -- Avoid id duplicates in _PendingUpdateLock
-			table.insert(self._PendingUpdateLock, updateId)
-		end
-	else
-		error("Passed non-existant updateId")
-	end
-end
 
-function GlobalUpdates:ClearLockedUpdate(updateId)
-	if type(updateId) ~= "number" then
-		error("Invalid updateId")
-	end
-
-	local profile = self._Profile
-	if self._UpdateHandlerMode == true then
-		error("Can't clear locked global updates in ProfileStore:GlobalUpdateProfileAsync()")
-	elseif self._PendingUpdateClear == nil then
-		error("Can't clear locked global updates in view mode")
-	elseif profile:IsActive() == false then -- Check if profile is expired
-		error("PROFILE EXPIRED - Can't clear locked global updates")
-	end
-
-	-- Check if global update exists with given updateId
-	local globalUpdateExists = nil
-	for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
-		if globalUpdate[1] == updateId then
-			globalUpdateExists = globalUpdate
-			break
+		if globalUpdateExists ~= nil then
+			local isPendingLocked = false
+			for _, lock_update_id in ipairs(self._PendingUpdateLock) do
+				if updateId == lock_update_id then
+					isPendingLocked = true -- Exclude global updates pending to be locked
+					break
+				end
+			end
+			
+			if not isPendingLocked and globalUpdateExists[3] == false then -- Avoid id duplicates in _PendingUpdateLock
+				table.insert(self._PendingUpdateLock, updateId)
+			end
+		else
+			error("Passed non-existant updateId")
 		end
 	end
 
-	if globalUpdateExists ~= nil then
-		local isPendingClear = false
-		for _, clearUpdateId in ipairs(self._PendingUpdateClear) do
-			if updateId == clearUpdateId then
-				isPendingClear = true -- Exclude global updates pending to be cleared
+	function GlobalUpdates:ClearLockedUpdate(updateId)
+		if type(updateId) ~= "number" then
+			error("Invalid updateId")
+		end
+
+		local profile = self._Profile
+		if self._UpdateHandlerMode == true then
+			error("Can't clear locked global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		elseif self._PendingUpdateClear == nil then
+			error("Can't clear locked global updates in view mode")
+		elseif profile:IsActive() == false then -- Check if profile is expired
+			error("PROFILE EXPIRED - Can't clear locked global updates")
+		end
+
+		-- Check if global update exists with given updateId
+		local globalUpdateExists = nil
+		for _, globalUpdate in ipairs(self._UpdatesLatest[2]) do
+			if globalUpdate[1] == updateId then
+				globalUpdateExists = globalUpdate
 				break
 			end
 		end
-		if isPendingClear == false and globalUpdateExists[3] == true then -- Avoid id duplicates in _PendingUpdateClear
-			table.insert(self._PendingUpdateClear, updateId)
+
+		if globalUpdateExists ~= nil then
+			local isPendingClear = false
+			for _, clearUpdateId in ipairs(self._PendingUpdateClear) do
+				if updateId == clearUpdateId then
+					isPendingClear = true -- Exclude global updates pending to be cleared
+					break
+				end
+			end
+			
+			if isPendingClear == false and globalUpdateExists[3] == true then -- Avoid id duplicates in _PendingUpdateClear
+				table.insert(self._PendingUpdateClear, updateId)
+			end
+		else
+			error("Passed non-existant updateId")
 		end
-	else
-		error("Passed non-existant updateId")
 	end
+
+	-- EXPOSED TO "updateHandler" DURING ProfileStore:GlobalUpdateProfileAsync() CALL
+	function GlobalUpdates:AddActiveUpdate(updateData)
+		if type(updateData) ~= "table" then
+			error("Invalid updateData")
+		end
+
+		if self._NewActiveUpdateListeners ~= nil then
+			error("Can't add active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
+		elseif self._UpdateHandlerMode ~= true then
+			error("Can't add active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
+		end
+
+		-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
+		local updatesLatest = self._UpdatesLatest
+		local updateIndex = updatesLatest[1] + 1 -- Incrementing global update index
+		updatesLatest[1] = updateIndex
+		-- Add new active global update:
+		table.insert(updatesLatest[2], {updateIndex, 1, false, updateData})
+	end
+
+	function GlobalUpdates:ChangeActiveUpdate(updateId, updateData)
+		if type(updateId) ~= "number" then
+			error("Invalid updateId")
+		end
+
+		if type(updateData) ~= "table" then
+			error("Invalid updateData")
+		end
+
+		if self._NewActiveUpdateListeners ~= nil then
+			error("Can't change active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
+		elseif self._UpdateHandlerMode ~= true then
+			error("Can't change active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
+		end
+
+		-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
+		local updatesLatest = self._UpdatesLatest
+		local getGlobalUpdate = nil
+		for _, globalUpdate in ipairs(updatesLatest[2]) do
+			if updateId == globalUpdate[1] then
+				getGlobalUpdate = globalUpdate
+				break
+			end
+		end
+
+		if getGlobalUpdate ~= nil then
+			if getGlobalUpdate[3] == true then
+				error("Can't change locked global update")
+			end
+			getGlobalUpdate[2] += 1 -- Increment version id
+			getGlobalUpdate[4] = updateData -- Set new global update data
+		else
+			error("Passed non-existant updateId")
+		end
+	end
+
+	function GlobalUpdates:ClearActiveUpdate(updateId)
+		if type(updateId) ~= "number" then
+			error("Invalid updateId argument")
+		end
+
+		if self._NewActiveUpdateListeners ~= nil then
+			error("Can't clear active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
+		elseif self._UpdateHandlerMode ~= true then
+			error("Can't clear active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
+		end
+
+		-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
+		local updatesLatest = self._UpdatesLatest
+		local getGlobalUpdateIndex = nil
+		local getGlobalUpdate = nil
+		
+		for index, globalUpdate in ipairs(updatesLatest[2]) do
+			if updateId == globalUpdate[1] then
+				getGlobalUpdateIndex = index
+				getGlobalUpdate = globalUpdate
+				break
+			end
+		end
+
+		if getGlobalUpdate ~= nil then
+			if getGlobalUpdate[3] == true then
+				error("Can't clear locked global update")
+			end
+			table.remove(updatesLatest[2], getGlobalUpdateIndex) -- Remove active global update
+		else
+			error("Passed non-existant updateId")
+		end
+	end
+	
 end
 
--- EXPOSED TO "updateHandler" DURING ProfileStore:GlobalUpdateProfileAsync() CALL
-function GlobalUpdates:AddActiveUpdate(updateData)
-	if type(updateData) ~= "table" then
-		error("Invalid updateData")
-	end
+local Profile = {} do
+	Profile.__index = Profile
 
-	if self._NewActiveUpdateListeners ~= nil then
-		error("Can't add active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
-	elseif self._UpdateHandlerMode ~= true then
-		error("Can't add active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
-	end
-
-	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
-	local updatesLatest = self._UpdatesLatest
-	local updateIndex = updatesLatest[1] + 1 -- Incrementing global update index
-	updatesLatest[1] = updateIndex
-	-- Add new active global update:
-	table.insert(updatesLatest[2], {updateIndex, 1, false, updateData})
-end
-
-function GlobalUpdates:ChangeActiveUpdate(updateId, updateData)
-	if type(updateId) ~= "number" then
-		error("Invalid updateId")
-	end
-
-	if type(updateData) ~= "table" then
-		error("Invalid updateData")
-	end
-
-	if self._NewActiveUpdateListeners ~= nil then
-		error("Can't change active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
-	elseif self._UpdateHandlerMode ~= true then
-		error("Can't change active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
-	end
-
-	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
-	local updatesLatest = self._UpdatesLatest
-	local getGlobalUpdate = nil
-	for _, globalUpdate in ipairs(updatesLatest[2]) do
-		if updateId == globalUpdate[1] then
-			getGlobalUpdate = globalUpdate
-			break
-		end
-	end
-
-	if getGlobalUpdate ~= nil then
-		if getGlobalUpdate[3] == true then
-			error("Can't change locked global update")
-		end
-		getGlobalUpdate[2] += 1 -- Increment version id
-		getGlobalUpdate[4] = updateData -- Set new global update data
-	else
-		error("Passed non-existant updateId")
-	end
-end
-
-function GlobalUpdates:ClearActiveUpdate(updateId)
-	if type(updateId) ~= "number" then
-		error("Invalid updateId argument")
-	end
-
-	if self._NewActiveUpdateListeners ~= nil then
-		error("Can't clear active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
-	elseif self._UpdateHandlerMode ~= true then
-		error("Can't clear active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
-	end
-
-	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
-	local updatesLatest = self._UpdatesLatest
-	local getGlobalUpdateIndex = nil
-	local getGlobalUpdate = nil
-	for index, globalUpdate in ipairs(updatesLatest[2]) do
-		if updateId == globalUpdate[1] then
-			getGlobalUpdateIndex = index
-			getGlobalUpdate = globalUpdate
-			break
-		end
-	end
-
-	if getGlobalUpdate ~= nil then
-		if getGlobalUpdate[3] == true then
-			error("Can't clear locked global update")
-		end
-		table.remove(updatesLatest[2], getGlobalUpdateIndex) -- Remove active global update
-	else
-		error("Passed non-existant updateId")
-	end
-end
-
--- Profile object:
-
-local Profile = {
 	--[[
 		Data = {}, -- [table] -- Loaded once after ProfileStore:LoadProfileAsync() finishes
 		MetaData = {}, -- [table] -- Updated with every auto-save
@@ -1417,166 +1439,176 @@ local Profile = {
 		_IsUserMock = false, -- ProfileStore.Mock
 		_mock_key_info = {},
 	--]]
-}
-Profile.__index = Profile
 
-function Profile:IsActive() --> [bool]
-	local loadedProfiles = self._IsUserMock == true and self._ProfileStore._MockLoadedProfiles or self._ProfileStore._LoadedProfiles
-	return loadedProfiles[self._ProfileKey] == self
-end
-
-function Profile:GetMetaTag(tagName) --> value
-	local metaData = self.MetaData
-	if metaData == nil then
-		return nil
-		-- error("This Profile hasn't been loaded before - MetaData not available")
+	function Profile:IsActive() --> [bool]
+		local loadedProfiles = self._IsUserMock == true
+			and self._ProfileStore._MockLoadedProfiles
+			or self._ProfileStore._LoadedProfiles
+		return loadedProfiles[self._ProfileKey] == self
 	end
-	return self.MetaData.MetaTags[tagName]
-end
 
-function Profile:SetMetaTag(tagName, value)
-	if type(tagName) ~= "string" then
-		error("tagName must be a string")
-	elseif string.len(tagName) == 0 then
-		error("Invalid tagName")
-	end
-	self.MetaData.MetaTags[tagName] = value
-end
-
-function Profile:Reconcile()
-	ReconcileTable(self.Data, self._ProfileStore._ProfileTemplate)
-end
-
-function Profile:ListenToRelease(listener) --> [ScriptConnection] (placeId / nil, gameJobId / nil)
-	if type(listener) ~= "function" then
-		error("Only a function can be set as listener in Profile:ListenToRelease()")
-	end
-	if self._ViewMode == true then
-		return {Disconnect = function() end}
-	end
-	if self:IsActive() == false then
-		-- Call release listener immediately if profile is expired
-		local placeId
-		local gameJobId
-		local activeSession = self.MetaData.ActiveSession
-		if activeSession ~= nil then
-			placeId = activeSession[1]
-			gameJobId = activeSession[2]
+	function Profile:GetMetaTag(tagName) --> value
+		local metaData = self.MetaData
+		if metaData == nil then
+			return nil
+			-- error("This Profile hasn't been loaded before - MetaData not available")
 		end
-		listener(placeId, gameJobId)
-		return {Disconnect = function() end}
-	else
-		return self._ReleaseListeners:Connect(listener)
+		return self.MetaData.MetaTags[tagName]
 	end
+
+	function Profile:SetMetaTag(tagName, value)
+		if type(tagName) ~= "string" then
+			error("tagName must be a string")
+		elseif string.len(tagName) == 0 then
+			error("Invalid tagName")
+		end
+		
+		self.MetaData.MetaTags[tagName] = value
+	end
+
+	function Profile:Reconcile()
+		ReconcileTable(self.Data, self._ProfileStore._ProfileTemplate)
+	end
+
+	function Profile:ListenToRelease(listener) --> [ScriptConnection] (placeId / nil, gameJobId / nil)
+		if type(listener) ~= "function" then
+			error("Only a function can be set as listener in Profile:ListenToRelease()")
+		end
+		
+		if self._ViewMode == true then
+			return {Disconnect = EMPTY_FUNCTION}
+		end
+		
+		if self:IsActive() == false then
+			-- Call release listener immediately if profile is expired
+			local placeId
+			local gameJobId
+			local activeSession = self.MetaData.ActiveSession
+			if activeSession ~= nil then
+				placeId = activeSession[1]
+				gameJobId = activeSession[2]
+			end
+			listener(placeId, gameJobId)
+			return {Disconnect = EMPTY_FUNCTION}
+		else
+			return self._ReleaseListeners:Connect(listener)
+		end
+	end
+
+	function Profile:Save()
+		if self._ViewMode == true then
+			error("Can't save Profile in view mode - Should you be calling :OverwriteAsync() instead?")
+		end
+		
+		if self:IsActive() == false then
+			warn("[ProfileService]: Attempted saving an inactive profile "
+				.. self:Identify() .. "; Traceback:\n" .. debug.traceback())
+			return
+		end
+		
+		-- Reject save request if a save is already pending in the queue - this will prevent the user from
+		--	unecessary API request spam which we could not meaningfully execute anyways!
+		if IsCustomWriteQueueEmptyFor(self._ProfileStore._ProfileStoreLookup, self._ProfileKey) then
+			-- We don't want auto save to trigger too soon after manual saving - this will reset the auto save timer:
+			RemoveProfileFromAutoSave(self)
+			AddProfileToAutoSave(self)
+			-- Call save function in a new thread:
+			task.spawn(SaveProfileAsync, self)
+		end
+	end
+
+	function Profile:Release()
+		if self._ViewMode == true then
+			return
+		end
+		
+		if self:IsActive() == true then
+			task.spawn(SaveProfileAsync, self, true) -- Call save function in a new thread with releaseFromSession = true
+		end
+	end
+
+	function Profile:ListenToHopReady(listener) --> [ScriptConnection] ()
+		if type(listener) ~= "function" then
+			error("Only a function can be set as listener in Profile:ListenToHopReady()")
+		end
+		
+		if self._ViewMode == true then
+			return {Disconnect = EMPTY_FUNCTION}
+		end
+		
+		if self._HopReady == true then
+			task.spawn(listener)
+			return {Disconnect = EMPTY_FUNCTION}
+		else
+			return self._HopReadyListeners:Connect(listener)
+		end
+	end
+
+	function Profile:AddUserId(userId) -- Associates userId with profile (GDPR compliance)
+		if type(userId) ~= "number" or userId % 1 ~= 0 then
+			warn("[ProfileService]: Invalid UserId argument for :AddUserId() ("
+				.. tostring(userId) .. "); Traceback:\n" .. debug.traceback())
+			return
+		end
+
+		if userId < 0 and self._IsUserMock ~= true and UseMockDataStore ~= true then
+			return -- Avoid giving real Roblox APIs negative UserId's
+		end
+
+		if table.find(self.UserIds, userId) == nil then
+			table.insert(self.UserIds, userId)
+		end
+	end
+
+	function Profile:RemoveUserId(userId) -- Unassociates userId with profile (safe function)
+		if type(userId) ~= "number" or userId % 1 ~= 0 then
+			warn("[ProfileService]: Invalid UserId argument for :RemoveUserId() ("
+				.. tostring(userId) .. "); Traceback:\n" .. debug.traceback())
+			return
+		end
+
+		local index = table.find(self.UserIds, userId)
+
+		if index ~= nil then
+			table.remove(self.UserIds, index)
+		end
+	end
+
+	function Profile:Identify() --> [string]
+		return IdentifyProfile(
+			self._ProfileStore._ProfileStoreName,
+			self._ProfileStore._ProfileStoreScope,
+			self._ProfileKey
+		)
+	end
+
+	function Profile:ClearGlobalUpdates() -- Clears all global updates data from a profile payload
+		if self._ViewMode ~= true then
+			error(":ClearGlobalUpdates() can only be used in view mode")
+		end
+
+		local globalUpdatesObject = {
+			_UpdatesLatest = {0, {}},
+			_Profile = self,
+		}
+		setmetatable(globalUpdatesObject, GlobalUpdates)
+
+		self.GlobalUpdates = globalUpdatesObject
+	end
+
+	function Profile:OverwriteAsync() -- Saves the profile to the DataStore and removes the session lock
+		if self._ViewMode ~= true then
+			error(":OverwriteAsync() can only be used in view mode")
+		end
+
+		SaveProfileAsync(self, nil, true)
+	end
+	
 end
 
-function Profile:Save()
-	if self._ViewMode == true then
-		error("Can't save Profile in view mode - Should you be calling :OverwriteAsync() instead?")
-	end
-	if self:IsActive() == false then
-		warn("[ProfileService]: Attempted saving an inactive profile "
-			.. self:Identify() .. "; Traceback:\n" .. debug.traceback())
-		return
-	end
-	-- Reject save request if a save is already pending in the queue - this will prevent the user from
-	--	unecessary API request spam which we could not meaningfully execute anyways!
-	if IsCustomWriteQueueEmptyFor(self._ProfileStore._ProfileStoreLookup, self._ProfileKey) == true then
-		-- We don't want auto save to trigger too soon after manual saving - this will reset the auto save timer:
-		RemoveProfileFromAutoSave(self)
-		AddProfileToAutoSave(self)
-		-- Call save function in a new thread:
-		task.spawn(SaveProfileAsync, self)
-	end
-end
+local ProfileVersionQuery = {} do
+	ProfileVersionQuery.__index = ProfileVersionQuery
 
-function Profile:Release()
-	if self._ViewMode == true then
-		return
-	end
-	if self:IsActive() == true then
-		task.spawn(SaveProfileAsync, self, true) -- Call save function in a new thread with releaseFromSession = true
-	end
-end
-
-function Profile:ListenToHopReady(listener) --> [ScriptConnection] ()
-	if type(listener) ~= "function" then
-		error("Only a function can be set as listener in Profile:ListenToHopReady()")
-	end
-	if self._ViewMode == true then
-		return {Disconnect = function() end}
-	end
-	if self._HopReady == true then
-		task.spawn(listener)
-		return {Disconnect = function() end}
-	else
-		return self._HopReadyListeners:Connect(listener)
-	end
-end
-
-function Profile:AddUserId(userId) -- Associates userId with profile (GDPR compliance)
-	if type(userId) ~= "number" or userId % 1 ~= 0 then
-		warn("[ProfileService]: Invalid UserId argument for :AddUserId() ("
-			.. tostring(userId) .. "); Traceback:\n" .. debug.traceback())
-		return
-	end
-
-	if userId < 0 and self._IsUserMock ~= true and UseMockDataStore ~= true then
-		return -- Avoid giving real Roblox APIs negative UserId's
-	end
-
-	if table.find(self.UserIds, userId) == nil then
-		table.insert(self.UserIds, userId)
-	end
-end
-
-function Profile:RemoveUserId(userId) -- Unassociates userId with profile (safe function)
-	if type(userId) ~= "number" or userId % 1 ~= 0 then
-		warn("[ProfileService]: Invalid UserId argument for :RemoveUserId() ("
-			.. tostring(userId) .. "); Traceback:\n" .. debug.traceback())
-		return
-	end
-
-	local index = table.find(self.UserIds, userId)
-
-	if index ~= nil then
-		table.remove(self.UserIds, index)
-	end
-end
-
-function Profile:Identify() --> [string]
-	return IdentifyProfile(
-		self._ProfileStore._ProfileStoreName,
-		self._ProfileStore._ProfileStoreScope,
-		self._ProfileKey
-	)
-end
-
-function Profile:ClearGlobalUpdates() -- Clears all global updates data from a profile payload
-	if self._ViewMode ~= true then
-		error(":ClearGlobalUpdates() can only be used in view mode")
-	end
-
-	local globalUpdatesObject = {
-		_UpdatesLatest = {0, {}},
-		_Profile = self,
-	}
-	setmetatable(globalUpdatesObject, GlobalUpdates)
-
-	self.GlobalUpdates = globalUpdatesObject
-end
-
-function Profile:OverwriteAsync() -- Saves the profile to the DataStore and removes the session lock
-	if self._ViewMode ~= true then
-		error(":OverwriteAsync() can only be used in view mode")
-	end
-
-	SaveProfileAsync(self, nil, true)
-end
-
--- ProfileVersionQuery object:
-
-local ProfileVersionQuery = {
 	--[[
 		_ProfileStore = profileStore,
 		_ProfileKey = profileKey,
@@ -1591,128 +1623,128 @@ local ProfileVersionQuery = {
 		_IsQueryYielded = false,
 		_QueryQueue = {},
 	--]]
-}
-ProfileVersionQuery.__index = ProfileVersionQuery
-
-function ProfileVersionQuery:_MoveQueue()
-	while #self._QueryQueue > 0 do
-		local queue_entry = table.remove(self._QueryQueue, 1)
-		task.spawn(queue_entry)
-		if self._IsQueryYielded == true then
-			break
+		
+	function ProfileVersionQuery:_MoveQueue()
+		while #self._QueryQueue > 0 do
+			local queue_entry = table.remove(self._QueryQueue, 1)
+			task.spawn(queue_entry)
+			if self._IsQueryYielded == true then
+				break
+			end
 		end
 	end
-end
 
-function ProfileVersionQuery:NextAsync(isStacking) --> [Profile] or nil
+	function ProfileVersionQuery:NextAsync(isStacking) --> [Profile] or nil
 
-	if self._ProfileStore == nil then
-		return nil
-	end
-
-	local profile
-	local isFinished = false
-
-	local function queryJob()
-
-		if self._QueryFailure == true then
-			isFinished = true
-			return
+		if self._ProfileStore == nil then
+			return nil
 		end
 
-		-- First "next" call loads version pages:
-		if self._QueryPages == nil then
+		local profile
+		local isFinished = false
 
-			self._IsQueryYielded = true
-			task.spawn(function()
-				profile = self:NextAsync(true)
+		local function queryJob()
+
+			if self._QueryFailure == true then
 				isFinished = true
-			end)
-
-			local listSuccess, errorMessage = pcall(function()
-				self._QueryPages = self._ProfileStore._GlobalDataStore:ListVersionsAsync(
-					self._ProfileKey,
-					self._SortDirection,
-					self._MinDate,
-					self._MaxDate
-				)
-				self._QueryIndex = 0
-			end)
-
-			if listSuccess == false or self._QueryPages == nil then
-				warn("[ProfileService]: Version query fail - " .. tostring(errorMessage))
-				self._QueryFailure = true
+				return
 			end
 
-			self._IsQueryYielded = false
-			self:_MoveQueue()
+			-- First "next" call loads version pages:
+			if self._QueryPages == nil then
 
-			return
-		end
+				self._IsQueryYielded = true
+				task.spawn(function()
+					profile = self:NextAsync(true)
+					isFinished = true
+				end)
 
-		local current_page = self._QueryPages:GetCurrentPage()
-		local nextItem = current_page[self._QueryIndex + 1]
+				local listSuccess, errorMessage = pcall(function()
+					self._QueryPages = self._ProfileStore._GlobalDataStore:ListVersionsAsync(
+						self._ProfileKey,
+						self._SortDirection,
+						self._MinDate,
+						self._MaxDate
+					)
+					self._QueryIndex = 0
+				end)
 
-		-- No more entries:
-		if self._QueryPages.IsFinished == true and nextItem == nil then
-			isFinished = true
-			return
-		end
+				if listSuccess == false or self._QueryPages == nil then
+					warn("[ProfileService]: Version query fail - " .. tostring(errorMessage))
+					self._QueryFailure = true
+				end
 
-		-- Load next page when this page is over:
-		if nextItem == nil then
+				self._IsQueryYielded = false
+				self:_MoveQueue()
 
-			self._IsQueryYielded = true
-			task.spawn(function()
-				profile = self:NextAsync(true)
-				isFinished = true
-			end)
-
-			local success = pcall(function()
-				self._QueryPages:AdvanceToNextPageAsync()
-				self._QueryIndex = 0
-			end)
-
-			if success == false or #self._QueryPages:GetCurrentPage() == 0 then
-				self._QueryFailure = true
+				return
 			end
 
-			self._IsQueryYielded = false
-			self:_MoveQueue()
+			local current_page = self._QueryPages:GetCurrentPage()
+			local nextItem = current_page[self._QueryIndex + 1]
 
-			return
+			-- No more entries:
+			if self._QueryPages.IsFinished == true and nextItem == nil then
+				isFinished = true
+				return
+			end
+
+			-- Load next page when this page is over:
+			if nextItem == nil then
+
+				self._IsQueryYielded = true
+				task.spawn(function()
+					profile = self:NextAsync(true)
+					isFinished = true
+				end)
+
+				local success = pcall(function()
+					self._QueryPages:AdvanceToNextPageAsync()
+					self._QueryIndex = 0
+				end)
+
+				if success == false or #self._QueryPages:GetCurrentPage() == 0 then
+					self._QueryFailure = true
+				end
+
+				self._IsQueryYielded = false
+				self:_MoveQueue()
+
+				return
+
+			end
+
+			-- Next page item:
+
+			self._QueryIndex += 1
+			profile = self._ProfileStore:ViewProfileAsync(self._ProfileKey, nextItem.Version)
+			isFinished = true
 
 		end
 
-		-- Next page item:
-
-		self._QueryIndex += 1
-		profile = self._ProfileStore:ViewProfileAsync(self._ProfileKey, nextItem.Version)
-		isFinished = true
-
-	end
-
-	if self._IsQueryYielded == false then
-		queryJob()
-	else
-		if isStacking == true then
-			table.insert(self._QueryQueue, 1, queryJob)
+		if self._IsQueryYielded == false then
+			queryJob()
 		else
-			table.insert(self._QueryQueue, queryJob)
+			if isStacking == true then
+				table.insert(self._QueryQueue, 1, queryJob)
+			else
+				table.insert(self._QueryQueue, queryJob)
+			end
 		end
+
+		while isFinished == false do
+			task.wait()
+		end
+
+		return profile
+
 	end
-
-	while isFinished == false do
-		task.wait()
-	end
-
-	return profile
-
+	
 end
 
--- ProfileStore object:
+local ProfileStore = {} do
+	ProfileStore.__index = ProfileStore
 
-local ProfileStore = {
 	--[[
 		Mock = {},
 	
@@ -1729,494 +1761,494 @@ local ProfileStore = {
 		_MockLoadedProfiles = {[profileKey] = Profile, ...},
 		_MockProfileLoadJobs = {[profileKey] = {loadId, loadedData}, ...},
 	--]]
-}
-ProfileStore.__index = ProfileStore
 
-function ProfileStore:LoadProfileAsync(profileKey, notReleasedHandler, useMock) --> [Profile / nil] notReleasedHandler(placeId, gameJobId)
+	function ProfileStore:LoadProfileAsync(profileKey, notReleasedHandler, useMock) --> [Profile / nil] notReleasedHandler(placeId, gameJobId)
 
-	notReleasedHandler = notReleasedHandler or "ForceLoad"
+		notReleasedHandler = notReleasedHandler or "ForceLoad"
 
-	if self._ProfileTemplate == nil then
-		error("Profile template not set - ProfileStore:LoadProfileAsync() locked for this ProfileStore")
-	end
+		if self._ProfileTemplate == nil then
+			error("Profile template not set - ProfileStore:LoadProfileAsync() locked for this ProfileStore")
+		end
 
-	if type(profileKey) ~= "string" then
-		error("profileKey must be a string")
-	elseif string.len(profileKey) == 0 then
-		error("Invalid profileKey")
-	end
+		if type(profileKey) ~= "string" then
+			error("profileKey must be a string")
+		elseif string.len(profileKey) == 0 then
+			error("Invalid profileKey")
+		end
 
-	if type(notReleasedHandler) ~= "function" and notReleasedHandler ~= "ForceLoad" and notReleasedHandler ~= "Steal" then
-		error("Invalid notReleasedHandler")
-	end
+		if type(notReleasedHandler) ~= "function" and notReleasedHandler ~= "ForceLoad" and notReleasedHandler ~= "Steal" then
+			error("Invalid notReleasedHandler")
+		end
 
-	if ProfileService.ServiceLocked == true then
-		return nil
-	end
+		if ProfileService.ServiceLocked == true then
+			return nil
+		end
 
-	WaitForPendingProfileStore(self)
+		WaitForPendingProfileStore(self)
 
-	local isUserMock = useMock == UseMockTag
+		local isUserMock = useMock == UseMockTag
 
-	-- Check if profile with profileKey isn't already loaded in this session:
-	for _, profileStore in ipairs(ActiveProfileStores) do
-		if profileStore._ProfileStoreLookup == self._ProfileStoreLookup then
-			local loadedProfiles = isUserMock == true and profileStore._MockLoadedProfiles or profileStore._LoadedProfiles
-			if loadedProfiles[profileKey] ~= nil then
-				error("Profile " .. IdentifyProfile(self._ProfileStoreName, self._ProfileStoreScope, profileKey) .. " is already loaded in this session")
-				-- Are you using Profile:Release() properly?
+		-- Check if profile with profileKey isn't already loaded in this session:
+		for _, profileStore in ipairs(ActiveProfileStores) do
+			if profileStore._ProfileStoreLookup == self._ProfileStoreLookup then
+				local loadedProfiles = isUserMock == true and profileStore._MockLoadedProfiles or profileStore._LoadedProfiles
+				if loadedProfiles[profileKey] ~= nil then
+					error("Profile " .. IdentifyProfile(self._ProfileStoreName, self._ProfileStoreScope, profileKey) .. " is already loaded in this session")
+					-- Are you using Profile:Release() properly?
+				end
 			end
 		end
+
+		ActiveProfileLoadJobs += 1
+		local forceLoad = notReleasedHandler == "ForceLoad"
+		local forceLoadSteps = 0
+		local requestForceLoad = forceLoad -- First step of ForceLoad
+		local stealSession = false -- Second step of ForceLoad
+		local aggressiveSteal = notReleasedHandler == "Steal" -- Developer invoked steal
+		while ProfileService.ServiceLocked == false do
+			-- Load profile:
+			-- SPECIAL CASE - If LoadProfileAsync is called for the same key before another LoadProfileAsync finishes,
+			-- yoink the DataStore return for the new call. The older call will return nil. This would prevent very rare
+			-- game breaking errors where a player rejoins the server super fast.
+			local profileLoadJobs = isUserMock == true and self._MockProfileLoadJobs or self._ProfileLoadJobs
+			local loadedData, keyInfo
+			local loadId = LoadIndex + 1
+			LoadIndex = loadId
+			local profileLoadJob = profileLoadJobs[profileKey] -- {loadId, {loadedData, keyInfo} or nil}
+
+			if profileLoadJob ~= nil then
+				profileLoadJob[1] = loadId -- Yoink load job
+				while profileLoadJob[2] == nil do -- Wait for job to finish
+					task.wait()
+				end
+				if profileLoadJob[1] == loadId then -- Load job hasn't been double-yoinked
+					loadedData, keyInfo = table.unpack(profileLoadJob[2])
+					profileLoadJobs[profileKey] = nil
+				else
+					ActiveProfileLoadJobs -= 1
+					return nil
+				end
+			else
+				profileLoadJob = {loadId, nil}
+				profileLoadJobs[profileKey] = profileLoadJob
+				profileLoadJob[2] = table.pack(StandardProfileUpdateAsyncDataStore(
+					self,
+					profileKey,
+					{
+						ExistingProfileHandle = function(latestData)
+							if ProfileService.ServiceLocked == false then
+								local activeSession = latestData.MetaData.ActiveSession
+								local forceLoadSession = latestData.MetaData.ForceLoadSession
+								-- IsThisSession(activeSession)
+								if activeSession == nil then
+									latestData.MetaData.ActiveSession = {PlaceId, JobId}
+									latestData.MetaData.ForceLoadSession = nil
+								elseif type(activeSession) == "table" then
+									if IsThisSession(activeSession) == false then
+										local last_update = latestData.MetaData.LastUpdate
+										if last_update ~= nil then
+											if os.time() - last_update > SETTINGS.AssumeDeadSessionLock then
+												latestData.MetaData.ActiveSession = {PlaceId, JobId}
+												latestData.MetaData.ForceLoadSession = nil
+												return
+											end
+										end
+										if stealSession == true or aggressiveSteal == true then
+											local forceLoadUninterrupted = false
+											if forceLoadSession ~= nil then
+												forceLoadUninterrupted = IsThisSession(forceLoadSession)
+											end
+											if forceLoadUninterrupted == true or aggressiveSteal == true then
+												latestData.MetaData.ActiveSession = {PlaceId, JobId}
+												latestData.MetaData.ForceLoadSession = nil
+											end
+										elseif requestForceLoad == true then
+											latestData.MetaData.ForceLoadSession = {PlaceId, JobId}
+										end
+									else
+										latestData.MetaData.ForceLoadSession = nil
+									end
+								end
+							end
+						end,
+						MissingProfileHandle = function(latestData)
+							latestData.Data = DeepCopyTable(self._ProfileTemplate)
+							latestData.MetaData = {
+								ProfileCreateTime = os.time(),
+								SessionLoadCount = 0,
+								ActiveSession = {PlaceId, JobId},
+								ForceLoadSession = nil,
+								MetaTags = {},
+							}
+						end,
+						EditProfile = function(latestData)
+							if ProfileService.ServiceLocked == false then
+								local activeSession = latestData.MetaData.ActiveSession
+								if activeSession ~= nil and IsThisSession(activeSession) == true then
+									latestData.MetaData.SessionLoadCount += 1
+									latestData.MetaData.LastUpdate = os.time()
+								end
+							end
+						end,
+					},
+					isUserMock
+					))
+				if profileLoadJob[1] == loadId then -- Load job hasn't been yoinked
+					loadedData, keyInfo = table.unpack(profileLoadJob[2])
+					profileLoadJobs[profileKey] = nil
+				else
+					ActiveProfileLoadJobs -= 1
+					return nil -- Load job yoinked
+				end
+			end
+			-- Handle load_data:
+			if loadedData ~= nil and keyInfo ~= nil then
+				local activeSession = loadedData.MetaData.ActiveSession
+				if type(activeSession) == "table" then
+					if IsThisSession(activeSession) == true then
+						-- Special component in MetaTags:
+						loadedData.MetaData.MetaTagsLatest = DeepCopyTable(loadedData.MetaData.MetaTags)
+						-- Case #1: Profile is now taken by this session:
+						-- Create Profile object:
+						local globalUpdatesObject = {
+							_UpdatesLatest = loadedData.GlobalUpdates,
+							_PendingUpdateLock = {},
+							_PendingUpdateClear = {},
+
+							_NewActiveUpdateListeners = Madwork.NewScriptSignal(),
+							_NewLockedUpdateListeners = Madwork.NewScriptSignal(),
+
+							_Profile = nil,
+						}
+						setmetatable(globalUpdatesObject, GlobalUpdates)
+						local profile = {
+							Data = loadedData.Data,
+							MetaData = loadedData.MetaData,
+							MetaTagsUpdated = Madwork.NewScriptSignal(),
+
+							RobloxMetaData = loadedData.RobloxMetaData or {},
+							UserIds = loadedData.UserIds or {},
+							KeyInfo = keyInfo,
+							KeyInfoUpdated = Madwork.NewScriptSignal(),
+
+							GlobalUpdates = globalUpdatesObject,
+
+							_ProfileStore = self,
+							_ProfileKey = profileKey,
+
+							_ReleaseListeners = Madwork.NewScriptSignal(),
+							_HopReadyListeners = Madwork.NewScriptSignal(),
+							_HopReady = false,
+
+							_LoadTimestamp = os.clock(),
+
+							_IsUserMock = isUserMock,
+						}
+						setmetatable(profile, Profile)
+						globalUpdatesObject._Profile = profile
+						-- Referencing Profile object in ProfileStore:
+						if next(self._LoadedProfiles) == nil and next(self._MockLoadedProfiles) == nil then -- ProfileStore object was inactive
+							table.insert(ActiveProfileStores, self)
+						end
+						if isUserMock == true then
+							self._MockLoadedProfiles[profileKey] = profile
+						else
+							self._LoadedProfiles[profileKey] = profile
+						end
+						-- Adding profile to AutoSaveList;
+						AddProfileToAutoSave(profile)
+						-- Special case - finished loading profile, but session is shutting down:
+						if ProfileService.ServiceLocked == true then
+							SaveProfileAsync(profile, true) -- Release profile and yield until the DataStore call is finished
+							profile = nil -- nil will be returned by this call
+						end
+						-- Return Profile object:
+						ActiveProfileLoadJobs -= 1
+						return profile
+					else
+						-- Case #2: Profile is taken by some other session:
+						if forceLoad == true then
+							local forceLoadSession = loadedData.MetaData.ForceLoadSession
+							local forceLoadUninterrupted = false
+							if forceLoadSession ~= nil then
+								forceLoadUninterrupted = IsThisSession(forceLoadSession)
+							end
+							if forceLoadUninterrupted == true then
+								if requestForceLoad == false then
+									forceLoadSteps += 1
+									if forceLoadSteps == SETTINGS.ForceLoadMaxSteps then
+										stealSession = true
+									end
+								end
+								task.wait() -- Overload prevention
+							else
+								-- Another session tried to force load this profile:
+								ActiveProfileLoadJobs -= 1
+								return nil
+							end
+							requestForceLoad = false -- Only request a force load once
+						elseif aggressiveSteal == true then
+							task.wait() -- Overload prevention
+						else
+							local handlerResult = notReleasedHandler(activeSession[1], activeSession[2])
+							if handlerResult == "Repeat" then
+								task.wait() -- Overload prevention
+							elseif handlerResult == "Cancel" then
+								ActiveProfileLoadJobs -= 1
+								return nil
+							elseif handlerResult == "ForceLoad" then
+								forceLoad = true
+								requestForceLoad = true
+								task.wait() -- Overload prevention
+							elseif handlerResult == "Steal" then
+								aggressiveSteal = true
+								task.wait() -- Overload prevention
+							else
+								error(
+									"[ProfileService]: Invalid return from notReleasedHandler (\"" .. tostring(handlerResult) .. "\")(" .. type(handlerResult) .. ");" ..
+										"\n" .. IdentifyProfile(self._ProfileStoreName, self._ProfileStoreScope, profileKey) ..
+										" Traceback:\n" .. debug.traceback()
+								)
+							end
+						end
+					end
+				else
+					ActiveProfileLoadJobs -= 1
+					return nil -- In this scenario it is likely the ProfileService.ServiceLocked flag was raised
+				end
+			else
+				task.wait() -- Overload prevention
+			end
+		end
+
+		ActiveProfileLoadJobs -= 1
+		return nil -- If loop breaks return nothing
 	end
 
-	ActiveProfileLoadJobs += 1
-	local forceLoad = notReleasedHandler == "ForceLoad"
-	local forceLoadSteps = 0
-	local requestForceLoad = forceLoad -- First step of ForceLoad
-	local stealSession = false -- Second step of ForceLoad
-	local aggressiveSteal = notReleasedHandler == "Steal" -- Developer invoked steal
-	while ProfileService.ServiceLocked == false do
-		-- Load profile:
-		-- SPECIAL CASE - If LoadProfileAsync is called for the same key before another LoadProfileAsync finishes,
-		-- yoink the DataStore return for the new call. The older call will return nil. This would prevent very rare
-		-- game breaking errors where a player rejoins the server super fast.
-		local profileLoadJobs = isUserMock == true and self._MockProfileLoadJobs or self._ProfileLoadJobs
-		local loadedData, keyInfo
-		local loadId = LoadIndex + 1
-		LoadIndex = loadId
-		local profileLoadJob = profileLoadJobs[profileKey] -- {loadId, {loadedData, keyInfo} or nil}
+	function ProfileStore:GlobalUpdateProfileAsync(profileKey, updateHandler, useMock) --> [GlobalUpdates / nil] (updateHandler(GlobalUpdates))
+		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
+			error("Invalid profileKey")
+		end
+		if type(updateHandler) ~= "function" then
+			error("Invalid updateHandler")
+		end
 
-		if profileLoadJob ~= nil then
-			profileLoadJob[1] = loadId -- Yoink load job
-			while profileLoadJob[2] == nil do -- Wait for job to finish
-				task.wait()
-			end
-			if profileLoadJob[1] == loadId then -- Load job hasn't been double-yoinked
-				loadedData, keyInfo = table.unpack(profileLoadJob[2])
-				profileLoadJobs[profileKey] = nil
-			else
-				ActiveProfileLoadJobs -= 1
-				return nil
-			end
-		else
-			profileLoadJob = {loadId, nil}
-			profileLoadJobs[profileKey] = profileLoadJob
-			profileLoadJob[2] = table.pack(StandardProfileUpdateAsyncDataStore(
+		if ProfileService.ServiceLocked == true then
+			return nil
+		end
+
+		WaitForPendingProfileStore(self)
+
+		while ProfileService.ServiceLocked == false do
+			-- Updating profile:
+			local loadedData = StandardProfileUpdateAsyncDataStore(
 				self,
 				profileKey,
 				{
-					ExistingProfileHandle = function(latestData)
-						if ProfileService.ServiceLocked == false then
-							local activeSession = latestData.MetaData.ActiveSession
-							local forceLoadSession = latestData.MetaData.ForceLoadSession
-							-- IsThisSession(activeSession)
-							if activeSession == nil then
-								latestData.MetaData.ActiveSession = {PlaceId, JobId}
-								latestData.MetaData.ForceLoadSession = nil
-							elseif type(activeSession) == "table" then
-								if IsThisSession(activeSession) == false then
-									local last_update = latestData.MetaData.LastUpdate
-									if last_update ~= nil then
-										if os.time() - last_update > SETTINGS.AssumeDeadSessionLock then
-											latestData.MetaData.ActiveSession = {PlaceId, JobId}
-											latestData.MetaData.ForceLoadSession = nil
-											return
-										end
-									end
-									if stealSession == true or aggressiveSteal == true then
-										local forceLoadUninterrupted = false
-										if forceLoadSession ~= nil then
-											forceLoadUninterrupted = IsThisSession(forceLoadSession)
-										end
-										if forceLoadUninterrupted == true or aggressiveSteal == true then
-											latestData.MetaData.ActiveSession = {PlaceId, JobId}
-											latestData.MetaData.ForceLoadSession = nil
-										end
-									elseif requestForceLoad == true then
-										latestData.MetaData.ForceLoadSession = {PlaceId, JobId}
-									end
-								else
-									latestData.MetaData.ForceLoadSession = nil
-								end
-							end
-						end
+					ExistingProfileHandle = nil,
+					MissingProfileHandle = nil,
+					EditProfile = function(latestData)
+						-- Running updateHandler:
+						local globalUpdatesObject = {
+							_UpdatesLatest = latestData.GlobalUpdates,
+							_UpdateHandlerMode = true,
+						}
+						setmetatable(globalUpdatesObject, GlobalUpdates)
+						updateHandler(globalUpdatesObject)
 					end,
+				},
+				useMock == UseMockTag
+			)
+			CustomWriteQueueMarkForCleanup(self._ProfileStoreLookup, profileKey)
+			-- Handling loadedData:
+			if loadedData ~= nil then
+				-- Return GlobalUpdates object (Update successful):
+				local globalUpdatesObject = {
+					_UpdatesLatest = loadedData.GlobalUpdates,
+				}
+				setmetatable(globalUpdatesObject, GlobalUpdates)
+				return globalUpdatesObject
+			else
+				task.wait() -- Overload prevention
+			end
+		end
+
+		return nil -- Return nothing (Update unsuccessful)
+	end
+
+	function ProfileStore:ViewProfileAsync(profileKey, version, useMock) --> [Profile / nil]
+		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
+			error("Invalid profileKey")
+		end
+
+		if ProfileService.ServiceLocked == true then
+			return nil
+		end
+
+		WaitForPendingProfileStore(self)
+
+		if version ~= nil and (useMock == UseMockTag or UseMockDataStore == true) then
+			return nil -- No version support in mock mode
+		end
+
+		while ProfileService.ServiceLocked == false do
+			-- Load profile:
+			local loadedData, keyInfo = StandardProfileUpdateAsyncDataStore(
+				self,
+				profileKey,
+				{
+					ExistingProfileHandle = nil,
 					MissingProfileHandle = function(latestData)
 						latestData.Data = DeepCopyTable(self._ProfileTemplate)
 						latestData.MetaData = {
 							ProfileCreateTime = os.time(),
 							SessionLoadCount = 0,
-							ActiveSession = {PlaceId, JobId},
+							ActiveSession = nil,
 							ForceLoadSession = nil,
 							MetaTags = {},
 						}
 					end,
-					EditProfile = function(latestData)
-						if ProfileService.ServiceLocked == false then
-							local activeSession = latestData.MetaData.ActiveSession
-							if activeSession ~= nil and IsThisSession(activeSession) == true then
-								latestData.MetaData.SessionLoadCount += 1
-								latestData.MetaData.LastUpdate = os.time()
-							end
-						end
-					end,
+					EditProfile = nil,
 				},
-				isUserMock
-				))
-			if profileLoadJob[1] == loadId then -- Load job hasn't been yoinked
-				loadedData, keyInfo = table.unpack(profileLoadJob[2])
-				profileLoadJobs[profileKey] = nil
-			else
-				ActiveProfileLoadJobs -= 1
-				return nil -- Load job yoinked
-			end
-		end
-		-- Handle load_data:
-		if loadedData ~= nil and keyInfo ~= nil then
-			local activeSession = loadedData.MetaData.ActiveSession
-			if type(activeSession) == "table" then
-				if IsThisSession(activeSession) == true then
-					-- Special component in MetaTags:
-					loadedData.MetaData.MetaTagsLatest = DeepCopyTable(loadedData.MetaData.MetaTags)
-					-- Case #1: Profile is now taken by this session:
-					-- Create Profile object:
-					local globalUpdatesObject = {
-						_UpdatesLatest = loadedData.GlobalUpdates,
-						_PendingUpdateLock = {},
-						_PendingUpdateClear = {},
+				useMock == UseMockTag,
+				true, -- Use :GetAsync()
+				version -- DataStore key version
+			)
+			CustomWriteQueueMarkForCleanup(self._ProfileStoreLookup, profileKey)
+			-- Handle load_data:
+			if loadedData ~= nil then
 
-						_NewActiveUpdateListeners = Madwork.NewScriptSignal(),
-						_NewLockedUpdateListeners = Madwork.NewScriptSignal(),
-
-						_Profile = nil,
-					}
-					setmetatable(globalUpdatesObject, GlobalUpdates)
-					local profile = {
-						Data = loadedData.Data,
-						MetaData = loadedData.MetaData,
-						MetaTagsUpdated = Madwork.NewScriptSignal(),
-
-						RobloxMetaData = loadedData.RobloxMetaData or {},
-						UserIds = loadedData.UserIds or {},
-						KeyInfo = keyInfo,
-						KeyInfoUpdated = Madwork.NewScriptSignal(),
-
-						GlobalUpdates = globalUpdatesObject,
-
-						_ProfileStore = self,
-						_ProfileKey = profileKey,
-
-						_ReleaseListeners = Madwork.NewScriptSignal(),
-						_HopReadyListeners = Madwork.NewScriptSignal(),
-						_HopReady = false,
-
-						_LoadTimestamp = os.clock(),
-
-						_IsUserMock = isUserMock,
-					}
-					setmetatable(profile, Profile)
-					globalUpdatesObject._Profile = profile
-					-- Referencing Profile object in ProfileStore:
-					if next(self._LoadedProfiles) == nil and next(self._MockLoadedProfiles) == nil then -- ProfileStore object was inactive
-						table.insert(ActiveProfileStores, self)
-					end
-					if isUserMock == true then
-						self._MockLoadedProfiles[profileKey] = profile
-					else
-						self._LoadedProfiles[profileKey] = profile
-					end
-					-- Adding profile to AutoSaveList;
-					AddProfileToAutoSave(profile)
-					-- Special case - finished loading profile, but session is shutting down:
-					if ProfileService.ServiceLocked == true then
-						SaveProfileAsync(profile, true) -- Release profile and yield until the DataStore call is finished
-						profile = nil -- nil will be returned by this call
-					end
-					-- Return Profile object:
-					ActiveProfileLoadJobs -= 1
-					return profile
-				else
-					-- Case #2: Profile is taken by some other session:
-					if forceLoad == true then
-						local forceLoadSession = loadedData.MetaData.ForceLoadSession
-						local forceLoadUninterrupted = false
-						if forceLoadSession ~= nil then
-							forceLoadUninterrupted = IsThisSession(forceLoadSession)
-						end
-						if forceLoadUninterrupted == true then
-							if requestForceLoad == false then
-								forceLoadSteps += 1
-								if forceLoadSteps == SETTINGS.ForceLoadMaxSteps then
-									stealSession = true
-								end
-							end
-							task.wait() -- Overload prevention
-						else
-							-- Another session tried to force load this profile:
-							ActiveProfileLoadJobs -= 1
-							return nil
-						end
-						requestForceLoad = false -- Only request a force load once
-					elseif aggressiveSteal == true then
-						task.wait() -- Overload prevention
-					else
-						local handlerResult = notReleasedHandler(activeSession[1], activeSession[2])
-						if handlerResult == "Repeat" then
-							task.wait() -- Overload prevention
-						elseif handlerResult == "Cancel" then
-							ActiveProfileLoadJobs -= 1
-							return nil
-						elseif handlerResult == "ForceLoad" then
-							forceLoad = true
-							requestForceLoad = true
-							task.wait() -- Overload prevention
-						elseif handlerResult == "Steal" then
-							aggressiveSteal = true
-							task.wait() -- Overload prevention
-						else
-							error(
-								"[ProfileService]: Invalid return from notReleasedHandler (\"" .. tostring(handlerResult) .. "\")(" .. type(handlerResult) .. ");" ..
-									"\n" .. IdentifyProfile(self._ProfileStoreName, self._ProfileStoreScope, profileKey) ..
-									" Traceback:\n" .. debug.traceback()
-							)
-						end
-					end
+				if keyInfo == nil then
+					return nil -- Load was successful, but the key was empty - return no profile object
 				end
+
+				-- Create Profile object:
+				local globalUpdatesObject = {
+					_UpdatesLatest = loadedData.GlobalUpdates, -- {0, {}}
+					_Profile = nil,
+				}
+				setmetatable(globalUpdatesObject, GlobalUpdates)
+				local profile = {
+					Data = loadedData.Data,
+					MetaData = loadedData.MetaData,
+					MetaTagsUpdated = Madwork.NewScriptSignal(),
+
+					RobloxMetaData = loadedData.RobloxMetaData or {},
+					UserIds = loadedData.UserIds or {},
+					KeyInfo = keyInfo,
+					KeyInfoUpdated = Madwork.NewScriptSignal(),
+
+					GlobalUpdates = globalUpdatesObject,
+
+					_ProfileStore = self,
+					_ProfileKey = profileKey,
+
+					_ViewMode = true,
+
+					_LoadTimestamp = os.clock(),
+				}
+				setmetatable(profile, Profile)
+				globalUpdatesObject._Profile = profile
+				-- Returning Profile object:
+				return profile
 			else
-				ActiveProfileLoadJobs -= 1
-				return nil -- In this scenario it is likely the ProfileService.ServiceLocked flag was raised
+				task.wait() -- Overload prevention
 			end
-		else
-			task.wait() -- Overload prevention
 		end
+
+		return nil -- If loop breaks return nothing
 	end
 
-	ActiveProfileLoadJobs -= 1
-	return nil -- If loop breaks return nothing
-end
-
-function ProfileStore:GlobalUpdateProfileAsync(profileKey, updateHandler, useMock) --> [GlobalUpdates / nil] (updateHandler(GlobalUpdates))
-	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("Invalid profileKey")
-	end
-	if type(updateHandler) ~= "function" then
-		error("Invalid updateHandler")
-	end
-
-	if ProfileService.ServiceLocked == true then
-		return nil
-	end
-
-	WaitForPendingProfileStore(self)
-
-	while ProfileService.ServiceLocked == false do
-		-- Updating profile:
-		local loadedData = StandardProfileUpdateAsyncDataStore(
-			self,
-			profileKey,
-			{
-				ExistingProfileHandle = nil,
-				MissingProfileHandle = nil,
-				EditProfile = function(latestData)
-					-- Running updateHandler:
-					local globalUpdatesObject = {
-						_UpdatesLatest = latestData.GlobalUpdates,
-						_UpdateHandlerMode = true,
-					}
-					setmetatable(globalUpdatesObject, GlobalUpdates)
-					updateHandler(globalUpdatesObject)
-				end,
-			},
-			useMock == UseMockTag
-		)
-		CustomWriteQueueMarkForCleanup(self._ProfileStoreLookup, profileKey)
-		-- Handling loadedData:
-		if loadedData ~= nil then
-			-- Return GlobalUpdates object (Update successful):
-			local globalUpdatesObject = {
-				_UpdatesLatest = loadedData.GlobalUpdates,
-			}
-			setmetatable(globalUpdatesObject, GlobalUpdates)
-			return globalUpdatesObject
-		else
-			task.wait() -- Overload prevention
+	function ProfileStore:ProfileVersionQuery(profileKey, sortDirection, minDate, maxDate, useMock) --> [ProfileVersionQuery]
+		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
+			error("Invalid profileKey")
 		end
+
+		if ProfileService.ServiceLocked == true then
+			return setmetatable({}, ProfileVersionQuery) -- Silently fail :Next() requests
+		end
+
+		WaitForPendingProfileStore(self)
+
+		if useMock == UseMockTag or UseMockDataStore == true then
+			error(":ProfileVersionQuery() is not supported in mock mode")
+		end
+
+		-- Type check:
+		if sortDirection ~= nil and (typeof(sortDirection) ~= "EnumItem"
+			or sortDirection.EnumType ~= Enum.SortDirection) then
+			error("Invalid sortDirection (" .. tostring(sortDirection) .. ")")
+		end
+
+		if minDate ~= nil and typeof(minDate) ~= "DateTime" and typeof(minDate) ~= "number" then
+			error("Invalid minDate (" .. tostring(minDate) .. ")")
+		end
+
+		if maxDate ~= nil and typeof(maxDate) ~= "DateTime" and typeof(maxDate) ~= "number" then
+			error("Invalid maxDate (" .. tostring(maxDate) .. ")")
+		end
+
+		minDate = typeof(minDate) == "DateTime" and minDate.UnixTimestampMillis or minDate
+		maxDate = typeof(maxDate) == "DateTime" and maxDate.UnixTimestampMillis or maxDate
+
+		local profileVersionQuery = {
+			_ProfileStore = self,
+			_ProfileKey = profileKey,
+			_SortDirection = sortDirection,
+			_MinDate = minDate,
+			_MaxDate = maxDate,
+
+			_QueryPages = nil,
+			_QueryIndex = 0,
+			_QueryFailure = false,
+
+			_IsQueryYielded = false,
+			_QueryQueue = {},
+		}
+		setmetatable(profileVersionQuery, ProfileVersionQuery)
+
+		return profileVersionQuery
+
 	end
 
-	return nil -- Return nothing (Update unsuccessful)
-end
+	function ProfileStore:WipeProfileAsync(profileKey, useMock) --> is_wipe_successful [bool]
+		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
+			error("Invalid profileKey")
+		end
 
-function ProfileStore:ViewProfileAsync(profileKey, version, useMock) --> [Profile / nil]
-	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("Invalid profileKey")
-	end
+		if ProfileService.ServiceLocked == true then
+			return false
+		end
 
-	if ProfileService.ServiceLocked == true then
-		return nil
-	end
+		WaitForPendingProfileStore(self)
 
-	WaitForPendingProfileStore(self)
+		local wipeStatus = false
 
-	if version ~= nil and (useMock == UseMockTag or UseMockDataStore == true) then
-		return nil -- No version support in mock mode
-	end
-
-	while ProfileService.ServiceLocked == false do
-		-- Load profile:
-		local loadedData, keyInfo = StandardProfileUpdateAsyncDataStore(
-			self,
-			profileKey,
-			{
-				ExistingProfileHandle = nil,
-				MissingProfileHandle = function(latestData)
-					latestData.Data = DeepCopyTable(self._ProfileTemplate)
-					latestData.MetaData = {
-						ProfileCreateTime = os.time(),
-						SessionLoadCount = 0,
-						ActiveSession = nil,
-						ForceLoadSession = nil,
-						MetaTags = {},
-					}
-				end,
-				EditProfile = nil,
-			},
-			useMock == UseMockTag,
-			true, -- Use :GetAsync()
-			version -- DataStore key version
-		)
-		CustomWriteQueueMarkForCleanup(self._ProfileStoreLookup, profileKey)
-		-- Handle load_data:
-		if loadedData ~= nil then
-
-			if keyInfo == nil then
-				return nil -- Load was successful, but the key was empty - return no profile object
+		if useMock == UseMockTag then -- Used when the profile is accessed through ProfileStore.Mock
+			local mockDataStore = UserMockDataStore[self._ProfileStoreLookup]
+			if mockDataStore ~= nil then
+				mockDataStore[profileKey] = nil
 			end
-
-			-- Create Profile object:
-			local globalUpdatesObject = {
-				_UpdatesLatest = loadedData.GlobalUpdates, -- {0, {}}
-				_Profile = nil,
-			}
-			setmetatable(globalUpdatesObject, GlobalUpdates)
-			local profile = {
-				Data = loadedData.Data,
-				MetaData = loadedData.MetaData,
-				MetaTagsUpdated = Madwork.NewScriptSignal(),
-
-				RobloxMetaData = loadedData.RobloxMetaData or {},
-				UserIds = loadedData.UserIds or {},
-				KeyInfo = keyInfo,
-				KeyInfoUpdated = Madwork.NewScriptSignal(),
-
-				GlobalUpdates = globalUpdatesObject,
-
-				_ProfileStore = self,
-				_ProfileKey = profileKey,
-
-				_ViewMode = true,
-
-				_LoadTimestamp = os.clock(),
-			}
-			setmetatable(profile, Profile)
-			globalUpdatesObject._Profile = profile
-			-- Returning Profile object:
-			return profile
+			wipeStatus = true
+			task.wait() -- Simulate API call yield
+		elseif UseMockDataStore == true then -- Used when API access is disabled
+			local mockDataStore = MockDataStore[self._ProfileStoreLookup]
+			if mockDataStore ~= nil then
+				mockDataStore[profileKey] = nil
+			end
+			wipeStatus = true
+			task.wait() -- Simulate API call yield
 		else
-			task.wait() -- Overload prevention
+			wipeStatus = pcall(function()
+				self._GlobalDataStore:RemoveAsync(profileKey)
+			end)
 		end
+
+		CustomWriteQueueMarkForCleanup(self._ProfileStoreLookup, profileKey)
+
+		return wipeStatus
 	end
-
-	return nil -- If loop breaks return nothing
-end
-
-function ProfileStore:ProfileVersionQuery(profileKey, sortDirection, minDate, maxDate, useMock) --> [ProfileVersionQuery]
-	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("Invalid profileKey")
-	end
-
-	if ProfileService.ServiceLocked == true then
-		return setmetatable({}, ProfileVersionQuery) -- Silently fail :Next() requests
-	end
-
-	WaitForPendingProfileStore(self)
-
-	if useMock == UseMockTag or UseMockDataStore == true then
-		error(":ProfileVersionQuery() is not supported in mock mode")
-	end
-
-	-- Type check:
-	if sortDirection ~= nil and (typeof(sortDirection) ~= "EnumItem"
-		or sortDirection.EnumType ~= Enum.SortDirection) then
-		error("Invalid sortDirection (" .. tostring(sortDirection) .. ")")
-	end
-
-	if minDate ~= nil and typeof(minDate) ~= "DateTime" and typeof(minDate) ~= "number" then
-		error("Invalid minDate (" .. tostring(minDate) .. ")")
-	end
-
-	if maxDate ~= nil and typeof(maxDate) ~= "DateTime" and typeof(maxDate) ~= "number" then
-		error("Invalid maxDate (" .. tostring(maxDate) .. ")")
-	end
-
-	minDate = typeof(minDate) == "DateTime" and minDate.UnixTimestampMillis or minDate
-	maxDate = typeof(maxDate) == "DateTime" and maxDate.UnixTimestampMillis or maxDate
-
-	local profileVersionQuery = {
-		_ProfileStore = self,
-		_ProfileKey = profileKey,
-		_SortDirection = sortDirection,
-		_MinDate = minDate,
-		_MaxDate = maxDate,
-
-		_QueryPages = nil,
-		_QueryIndex = 0,
-		_QueryFailure = false,
-
-		_IsQueryYielded = false,
-		_QueryQueue = {},
-	}
-	setmetatable(profileVersionQuery, ProfileVersionQuery)
-
-	return profileVersionQuery
-
-end
-
-function ProfileStore:WipeProfileAsync(profileKey, useMock) --> is_wipe_successful [bool]
-	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("Invalid profileKey")
-	end
-
-	if ProfileService.ServiceLocked == true then
-		return false
-	end
-
-	WaitForPendingProfileStore(self)
-
-	local wipeStatus = false
-
-	if useMock == UseMockTag then -- Used when the profile is accessed through ProfileStore.Mock
-		local mockDataStore = UserMockDataStore[self._ProfileStoreLookup]
-		if mockDataStore ~= nil then
-			mockDataStore[profileKey] = nil
-		end
-		wipeStatus = true
-		task.wait() -- Simulate API call yield
-	elseif UseMockDataStore == true then -- Used when API access is disabled
-		local mockDataStore = MockDataStore[self._ProfileStoreLookup]
-		if mockDataStore ~= nil then
-			mockDataStore[profileKey] = nil
-		end
-		wipeStatus = true
-		task.wait() -- Simulate API call yield
-	else
-		wipeStatus = pcall(function()
-			self._GlobalDataStore:RemoveAsync(profileKey)
-		end)
-	end
-
-	CustomWriteQueueMarkForCleanup(self._ProfileStoreLookup, profileKey)
-
-	return wipeStatus
+	
 end
 
 -- New ProfileStore:
