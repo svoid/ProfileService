@@ -1440,6 +1440,50 @@ local Profile = {} do
 		_mock_key_info = {},
 	--]]
 
+
+	function Profile._new(profileStore, loadedData, keyInfo, globalUpdatesObject, profileKey)
+		local self = setmetatable({}, Profile)
+
+		self.Data = loadedData.Data
+		self.MetaData = loadedData.MetaData
+		self.MetaTagsUpdated = Madwork.NewScriptSignal()
+
+		self.RobloxMetaData = loadedData.RobloxMetaData or {}
+		self.UserIds = loadedData.UserIds or {}
+		self.KeyInfo = keyInfo
+		self.KeyInfoUpdated = Madwork.NewScriptSignal()
+
+		self.GlobalUpdates = globalUpdatesObject
+
+		self._ProfileStore = profileStore
+		self._ProfileKey = profileKey
+
+		return self
+	end
+	
+	function Profile.new_fromLoad(profileStore, loadedData, keyInfo, globalUpdatesObject, profileKey, isUserMock)
+		local self = Profile._new(profileStore, loadedData, keyInfo, globalUpdatesObject, profileKey)
+
+		self._ReleaseListeners = Madwork.NewScriptSignal()
+		self._HopReadyListeners = Madwork.NewScriptSignal()
+		self._HopReady = false
+
+		self._LoadTimestamp = os.clock()
+
+		self._IsUserMock = isUserMock
+
+		return self
+	end
+	
+	function Profile.new_fromView(profileStore, loadedData, keyInfo, globalUpdatesObject, profileKey)
+		local self = Profile._new(profileStore, loadedData, keyInfo, globalUpdatesObject, profileKey)
+
+		self._ViewMode = true
+		self._LoadTimestamp = os.clock()
+
+		return self
+	end
+	
 	function Profile:IsActive() --> [bool]
 		local loadedProfiles = self._IsUserMock == true
 			and self._ProfileStore._MockLoadedProfiles
@@ -1957,8 +2001,10 @@ local ProfileStore = {} do
 				local activeSession = loadedData.MetaData.ActiveSession
 				if type(activeSession) == "table" then
 					if IsThisSession(activeSession) == true then
+						
 						-- Special component in MetaTags:
 						loadedData.MetaData.MetaTagsLatest = DeepCopyTable(loadedData.MetaData.MetaTags)
+						
 						-- Case #1: Profile is now taken by this session:
 						-- Create Profile object:
 						local globalUpdatesObject = {
@@ -1972,47 +2018,30 @@ local ProfileStore = {} do
 							_Profile = nil,
 						}
 						setmetatable(globalUpdatesObject, GlobalUpdates)
-						local profile = {
-							Data = loadedData.Data,
-							MetaData = loadedData.MetaData,
-							MetaTagsUpdated = Madwork.NewScriptSignal(),
-
-							RobloxMetaData = loadedData.RobloxMetaData or {},
-							UserIds = loadedData.UserIds or {},
-							KeyInfo = keyInfo,
-							KeyInfoUpdated = Madwork.NewScriptSignal(),
-
-							GlobalUpdates = globalUpdatesObject,
-
-							_ProfileStore = self,
-							_ProfileKey = profileKey,
-
-							_ReleaseListeners = Madwork.NewScriptSignal(),
-							_HopReadyListeners = Madwork.NewScriptSignal(),
-							_HopReady = false,
-
-							_LoadTimestamp = os.clock(),
-
-							_IsUserMock = isUserMock,
-						}
-						setmetatable(profile, Profile)
+						
+						local profile = Profile.new_fromLoad(self, loadedData, keyInfo, globalUpdatesObject, profileKey, isUserMock)
+						
 						globalUpdatesObject._Profile = profile
 						-- Referencing Profile object in ProfileStore:
 						if next(self._LoadedProfiles) == nil and next(self._MockLoadedProfiles) == nil then -- ProfileStore object was inactive
 							table.insert(ActiveProfileStores, self)
 						end
+						
 						if isUserMock == true then
 							self._MockLoadedProfiles[profileKey] = profile
 						else
 							self._LoadedProfiles[profileKey] = profile
 						end
+						
 						-- Adding profile to AutoSaveList;
 						AddProfileToAutoSave(profile)
+						
 						-- Special case - finished loading profile, but session is shutting down:
 						if ProfileService.ServiceLocked == true then
 							SaveProfileAsync(profile, true) -- Release profile and yield until the DataStore call is finished
 							profile = nil -- nil will be returned by this call
 						end
+						
 						-- Return Profile object:
 						ActiveProfileLoadJobs -= 1
 						return profile
@@ -2179,26 +2208,9 @@ local ProfileStore = {} do
 					_Profile = nil,
 				}
 				setmetatable(globalUpdatesObject, GlobalUpdates)
-				local profile = {
-					Data = loadedData.Data,
-					MetaData = loadedData.MetaData,
-					MetaTagsUpdated = Madwork.NewScriptSignal(),
-
-					RobloxMetaData = loadedData.RobloxMetaData or {},
-					UserIds = loadedData.UserIds or {},
-					KeyInfo = keyInfo,
-					KeyInfoUpdated = Madwork.NewScriptSignal(),
-
-					GlobalUpdates = globalUpdatesObject,
-
-					_ProfileStore = self,
-					_ProfileKey = profileKey,
-
-					_ViewMode = true,
-
-					_LoadTimestamp = os.clock(),
-				}
-				setmetatable(profile, Profile)
+				
+				local profile = Profile.new_fromView(self, loadedData, keyInfo, globalUpdatesObject, profileKey)
+				
 				globalUpdatesObject._Profile = profile
 				-- Returning Profile object:
 				return profile
