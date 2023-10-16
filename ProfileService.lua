@@ -1432,7 +1432,7 @@ local Profile = {} do
 		_HopReadyListeners = [ScriptSignal] / nil, -- [table / nil]
 		_HopReady = false,
 		
-		_ViewMode = true / nil, -- [bool] or nil
+		_IsViewMode = true / false, -- [bool]
 		
 		_LoadTimestamp = os.clock(),
 		
@@ -1468,6 +1468,7 @@ local Profile = {} do
 		self._HopReadyListeners = Madwork.NewScriptSignal()
 		self._HopReady = false
 
+		self._IsViewMode = false
 		self._LoadTimestamp = os.clock()
 
 		self._IsUserMock = isUserMock
@@ -1478,7 +1479,7 @@ local Profile = {} do
 	function Profile.new_fromView(profileStore, loadedData, keyInfo, globalUpdatesObject, profileKey)
 		local self = Profile._new(profileStore, loadedData, keyInfo, globalUpdatesObject, profileKey)
 
-		self._ViewMode = true
+		self._IsViewMode = true
 		self._LoadTimestamp = os.clock()
 
 		return self
@@ -1519,7 +1520,7 @@ local Profile = {} do
 			error("Only a function can be set as listener in Profile:ListenToRelease()")
 		end
 		
-		if self._ViewMode == true then
+		if self._IsViewMode then
 			return {Disconnect = EMPTY_FUNCTION}
 		end
 		
@@ -1540,7 +1541,7 @@ local Profile = {} do
 	end
 
 	function Profile:Save()
-		if self._ViewMode == true then
+		if self._IsViewMode then
 			error("Can't save Profile in view mode - Should you be calling :OverwriteAsync() instead?")
 		end
 		
@@ -1562,9 +1563,7 @@ local Profile = {} do
 	end
 
 	function Profile:Release()
-		if self._ViewMode == true then
-			return
-		end
+		if self._IsViewMode then return end
 		
 		if self:IsActive() == true then
 			task.spawn(SaveProfileAsync, self, true) -- Call save function in a new thread with releaseFromSession = true
@@ -1576,7 +1575,7 @@ local Profile = {} do
 			error("Only a function can be set as listener in Profile:ListenToHopReady()")
 		end
 		
-		if self._ViewMode == true then
+		if self._IsViewMode then
 			return {Disconnect = EMPTY_FUNCTION}
 		end
 		
@@ -1627,7 +1626,7 @@ local Profile = {} do
 	end
 
 	function Profile:ClearGlobalUpdates() -- Clears all global updates data from a profile payload
-		if self._ViewMode ~= true then
+		if not self._IsViewMode then
 			error(":ClearGlobalUpdates() can only be used in view mode")
 		end
 
@@ -1641,7 +1640,7 @@ local Profile = {} do
 	end
 
 	function Profile:OverwriteAsync() -- Saves the profile to the DataStore and removes the session lock
-		if self._ViewMode ~= true then
+		if not self._IsViewMode then
 			error(":OverwriteAsync() can only be used in view mode")
 		end
 
