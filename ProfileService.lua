@@ -488,7 +488,7 @@ local CustomWriteQueue = {
 
 local function DeepCopyTable(t)
 	local copy = {}
-	for key, value in pairs(t) do
+	for key, value in next, t do
 		if type(value) == "table" then
 			copy[key] = DeepCopyTable(value)
 		else
@@ -499,7 +499,7 @@ local function DeepCopyTable(t)
 end
 
 local function ReconcileTable(target, template)
-	for k, v in pairs(template) do
+	for k, v in next, template do
 		if type(k) == "string" then -- Only string keys will be reconciled
 			if target[k] == nil then
 				if type(v) == "table" then
@@ -626,26 +626,33 @@ local function RegisterCorruption(storeName, storeScope, profileKey) -- Called w
 	ProfileService.CorruptionSignal:Fire(storeName, profileKey)
 end
 
-local function NewMockDataStoreKeyInfo(params)
-	local versionIdString = tostring(params.VersionId or 0)
-	local metaData = params.MetaData or {}
-	local userIds = params.UserIds or {}
+local MockDataStoreKeyInfo = {} do
+	MockDataStoreKeyInfo.__index = MockDataStoreKeyInfo
+	
+	function MockDataStoreKeyInfo.new(params)
+		local self = setmetatable({}, MockDataStoreKeyInfo)
 
-	return {
-		CreatedTime = params.CreatedTime,
-		UpdatedTime = params.UpdatedTime,
-		Version = string.rep("0", 16) .. "."
+		self._MetaData = params.MetaData or {}
+		self._UserIds = params.UserIds or {}
+
+		self.CreatedTime = params.CreatedTime
+		self.UpdatedTime = params.UpdatedTime
+		
+		local versionIdString = tostring(params.VersionId or 0)
+		self.Version = string.rep("0", 16) .. "."
 			.. string.rep("0", 10 - string.len(versionIdString)) .. versionIdString
-			.. "." .. string.rep("0", 16) .. "." .. "01",
+			.. "." .. string.rep("0", 16) .. "." .. "01"
+		
+		return self
+	end
+	
+	function MockDataStoreKeyInfo:GetMetadata()
+		return DeepCopyTable(self._MetaData)
+	end
 
-		GetMetadata = function()
-			return DeepCopyTable(metaData)
-		end,
-
-		GetUserIds = function()
-			return DeepCopyTable(userIds)
-		end,
-	}
+	function MockDataStoreKeyInfo:GetUserIds()
+		return DeepCopyTable(self._UserIds)
+	end
 end
 
 local function MockUpdateAsync(mockDataStore, profileStoreName, key, transformFunction, isGetCall) --> loadedData, keyInfo
@@ -676,7 +683,7 @@ local function MockUpdateAsync(mockDataStore, profileStoreName, key, transformFu
 		end
 	end
 
-	local mockKeyInfo = mockEntryWasNil == false and NewMockDataStoreKeyInfo(mockEntry) or nil
+	local mockKeyInfo = mockEntryWasNil == false and MockDataStoreKeyInfo.new(mockEntry) or nil
 
 	local transform, userIds, robloxMetaData = transformFunction(mockEntry and mockEntry.Data, mockKeyInfo)
 
@@ -691,7 +698,7 @@ local function MockUpdateAsync(mockDataStore, profileStoreName, key, transformFu
 			mockEntry.UpdatedTime = epochTime
 		end
 
-		return DeepCopyTable(transform), mockEntry ~= nil and NewMockDataStoreKeyInfo(mockEntry) or nil
+		return DeepCopyTable(transform), mockEntry ~= nil and MockDataStoreKeyInfo.new(mockEntry) or nil
 	end
 
 end
