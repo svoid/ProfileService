@@ -955,7 +955,7 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 			profile._ProfileStore._ProfileStoreScope,
 			profile._ProfileKey
 		)
-		error("[ProfileService]: PROFILE DATA CORRUPTED DURING RUNTIME! Profile: " .. profile:Identify())
+		error("PROFILE DATA CORRUPTED DURING RUNTIME! Profile: " .. profile:Identify())
 	end
 	if releaseFromSession == true and isOverwriting ~= true then
 		ReleaseProfileInternally(profile)
@@ -1172,13 +1172,13 @@ end
 -- ONLY WHEN FROM "Profile.GlobalUpdates":
 function GlobalUpdates:ListenToNewActiveUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
 	if type(listener) ~= "function" then
-		error("[ProfileService]: Only a function can be set as listener in GlobalUpdates:ListenToNewActiveUpdate()")
+		error("Only a function can be set as listener in GlobalUpdates:ListenToNewActiveUpdate()")
 	end
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
-		error("[ProfileService]: Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._NewActiveUpdateListeners == nil then
-		error("[ProfileService]: Can't listen to new global updates in view mode")
+		error("Can't listen to new global updates in view mode")
 	elseif profile:IsActive() == false then -- Check if profile is expired
 		return { -- Do not connect listener if the profile is expired
 			Disconnect = function() end,
@@ -1190,13 +1190,13 @@ end
 
 function GlobalUpdates:ListenToNewLockedUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
 	if type(listener) ~= "function" then
-		error("[ProfileService]: Only a function can be set as listener in GlobalUpdates:ListenToNewLockedUpdate()")
+		error("Only a function can be set as listener in GlobalUpdates:ListenToNewLockedUpdate()")
 	end
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
-		error("[ProfileService]: Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._NewLockedUpdateListeners == nil then
-		error("[ProfileService]: Can't listen to new global updates in view mode")
+		error("Can't listen to new global updates in view mode")
 	elseif profile:IsActive() == false then -- Check if profile is expired
 		return { -- Do not connect listener if the profile is expired
 			Disconnect = function() end,
@@ -1208,15 +1208,15 @@ end
 
 function GlobalUpdates:LockActiveUpdate(updateId)
 	if type(updateId) ~= "number" then
-		error("[ProfileService]: Invalid updateId")
+		error("Invalid updateId")
 	end
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
-		error("[ProfileService]: Can't lock active global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't lock active global updates in ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._PendingUpdateLock == nil then
-		error("[ProfileService]: Can't lock active global updates in view mode")
+		error("Can't lock active global updates in view mode")
 	elseif profile:IsActive() == false then -- Check if profile is expired
-		error("[ProfileService]: PROFILE EXPIRED - Can't lock active global updates")
+		error("PROFILE EXPIRED - Can't lock active global updates")
 	end
 	-- Check if global update exists with given updateId
 	local globalUpdateExists = nil
@@ -1238,21 +1238,21 @@ function GlobalUpdates:LockActiveUpdate(updateId)
 			table.insert(self._PendingUpdateLock, updateId)
 		end
 	else
-		error("[ProfileService]: Passed non-existant updateId")
+		error("Passed non-existant updateId")
 	end
 end
 
 function GlobalUpdates:ClearLockedUpdate(updateId)
 	if type(updateId) ~= "number" then
-		error("[ProfileService]: Invalid updateId")
+		error("Invalid updateId")
 	end
 	local profile = self._Profile
 	if self._UpdateHandlerMode == true then
-		error("[ProfileService]: Can't clear locked global updates in ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't clear locked global updates in ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._PendingUpdateClear == nil then
-		error("[ProfileService]: Can't clear locked global updates in view mode")
+		error("Can't clear locked global updates in view mode")
 	elseif profile:IsActive() == false then -- Check if profile is expired
-		error("[ProfileService]: PROFILE EXPIRED - Can't clear locked global updates")
+		error("PROFILE EXPIRED - Can't clear locked global updates")
 	end
 	-- Check if global update exists with given updateId
 	local globalUpdateExists = nil
@@ -1274,19 +1274,19 @@ function GlobalUpdates:ClearLockedUpdate(updateId)
 			table.insert(self._PendingUpdateClear, updateId)
 		end
 	else
-		error("[ProfileService]: Passed non-existant updateId")
+		error("Passed non-existant updateId")
 	end
 end
 
 -- EXPOSED TO "updateHandler" DURING ProfileStore:GlobalUpdateProfileAsync() CALL
 function GlobalUpdates:AddActiveUpdate(updateData)
 	if type(updateData) ~= "table" then
-		error("[ProfileService]: Invalid updateData")
+		error("Invalid updateData")
 	end
 	if self._NewActiveUpdateListeners ~= nil then
-		error("[ProfileService]: Can't add active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't add active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._UpdateHandlerMode ~= true then
-		error("[ProfileService]: Can't add active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't add active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
 	end
 	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
 	local updatesLatest = self._UpdatesLatest
@@ -1298,15 +1298,15 @@ end
 
 function GlobalUpdates:ChangeActiveUpdate(updateId, updateData)
 	if type(updateId) ~= "number" then
-		error("[ProfileService]: Invalid updateId")
+		error("Invalid updateId")
 	end
 	if type(updateData) ~= "table" then
-		error("[ProfileService]: Invalid updateData")
+		error("Invalid updateData")
 	end
 	if self._NewActiveUpdateListeners ~= nil then
-		error("[ProfileService]: Can't change active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't change active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._UpdateHandlerMode ~= true then
-		error("[ProfileService]: Can't change active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't change active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
 	end
 	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
 	local updatesLatest = self._UpdatesLatest
@@ -1319,23 +1319,23 @@ function GlobalUpdates:ChangeActiveUpdate(updateId, updateData)
 	end
 	if getGlobalUpdate ~= nil then
 		if getGlobalUpdate[3] == true then
-			error("[ProfileService]: Can't change locked global update")
+			error("Can't change locked global update")
 		end
 		getGlobalUpdate[2] = getGlobalUpdate[2] + 1 -- Increment version id
 		getGlobalUpdate[4] = updateData -- Set new global update data
 	else
-		error("[ProfileService]: Passed non-existant updateId")
+		error("Passed non-existant updateId")
 	end
 end
 
 function GlobalUpdates:ClearActiveUpdate(updateId)
 	if type(updateId) ~= "number" then
-		error("[ProfileService]: Invalid updateId argument")
+		error("Invalid updateId argument")
 	end
 	if self._NewActiveUpdateListeners ~= nil then
-		error("[ProfileService]: Can't clear active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't clear active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
 	elseif self._UpdateHandlerMode ~= true then
-		error("[ProfileService]: Can't clear active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
+		error("Can't clear active global updates in view mode; Use ProfileStore:GlobalUpdateProfileAsync()")
 	end
 	-- self._UpdatesLatest = {}, -- [table] {updateIndex, {{updateId, versionId, updateLocked, updateData}, ...}}
 	local updatesLatest = self._UpdatesLatest
@@ -1350,11 +1350,11 @@ function GlobalUpdates:ClearActiveUpdate(updateId)
 	end
 	if getGlobalUpdate ~= nil then
 		if getGlobalUpdate[3] == true then
-			error("[ProfileService]: Can't clear locked global update")
+			error("Can't clear locked global update")
 		end
 		table.remove(updatesLatest[2], getGlobalUpdateIndex) -- Remove active global update
 	else
-		error("[ProfileService]: Passed non-existant updateId")
+		error("Passed non-existant updateId")
 	end
 end
 
@@ -1392,16 +1392,16 @@ function Profile:GetMetaTag(tagName) --> value
 	local meta_data = self.MetaData
 	if meta_data == nil then
 		return nil
-		-- error("[ProfileService]: This Profile hasn't been loaded before - MetaData not available")
+		-- error("This Profile hasn't been loaded before - MetaData not available")
 	end
 	return self.MetaData.MetaTags[tagName]
 end
 
 function Profile:SetMetaTag(tagName, value)
 	if type(tagName) ~= "string" then
-		error("[ProfileService]: tagName must be a string")
+		error("tagName must be a string")
 	elseif string.len(tagName) == 0 then
-		error("[ProfileService]: Invalid tagName")
+		error("Invalid tagName")
 	end
 	self.MetaData.MetaTags[tagName] = value
 end
@@ -1412,7 +1412,7 @@ end
 
 function Profile:ListenToRelease(listener) --> [ScriptConnection] (placeId / nil, gameJobId / nil)
 	if type(listener) ~= "function" then
-		error("[ProfileService]: Only a function can be set as listener in Profile:ListenToRelease()")
+		error("Only a function can be set as listener in Profile:ListenToRelease()")
 	end
 	if self._ViewMode == true then
 		return {Disconnect = function() end}
@@ -1435,7 +1435,7 @@ end
 
 function Profile:Save()
 	if self._ViewMode == true then
-		error("[ProfileService]: Can't save Profile in view mode - Should you be calling :OverwriteAsync() instead?")
+		error("Can't save Profile in view mode - Should you be calling :OverwriteAsync() instead?")
 	end
 	if self:IsActive() == false then
 		warn("[ProfileService]: Attempted saving an inactive profile "
@@ -1464,7 +1464,7 @@ end
 
 function Profile:ListenToHopReady(listener) --> [ScriptConnection] ()
 	if type(listener) ~= "function" then
-		error("[ProfileService]: Only a function can be set as listener in Profile:ListenToHopReady()")
+		error("Only a function can be set as listener in Profile:ListenToHopReady()")
 	end
 	if self._ViewMode == true then
 		return {Disconnect = function() end}
@@ -1522,7 +1522,7 @@ end
 function Profile:ClearGlobalUpdates() -- Clears all global updates data from a profile payload
 
 	if self._ViewMode ~= true then
-		error("[ProfileService]: :ClearGlobalUpdates() can only be used in view mode")
+		error(":ClearGlobalUpdates() can only be used in view mode")
 	end
 
 	local globalUpdatesObject = {
@@ -1538,7 +1538,7 @@ end
 function Profile:OverwriteAsync() -- Saves the profile to the DataStore and removes the session lock
 
 	if self._ViewMode ~= true then
-		error("[ProfileService]: :OverwriteAsync() can only be used in view mode")
+		error(":OverwriteAsync() can only be used in view mode")
 	end
 
 	SaveProfileAsync(self, nil, true)
@@ -1712,15 +1712,15 @@ function ProfileStore:LoadProfileAsync(profileKey, notReleasedHandler, useMock) 
 	notReleasedHandler = notReleasedHandler or "ForceLoad"
 
 	if self._ProfileTemplate == nil then
-		error("[ProfileService]: Profile template not set - ProfileStore:LoadProfileAsync() locked for this ProfileStore")
+		error("Profile template not set - ProfileStore:LoadProfileAsync() locked for this ProfileStore")
 	end
 	if type(profileKey) ~= "string" then
-		error("[ProfileService]: profileKey must be a string")
+		error("profileKey must be a string")
 	elseif string.len(profileKey) == 0 then
-		error("[ProfileService]: Invalid profileKey")
+		error("Invalid profileKey")
 	end
 	if type(notReleasedHandler) ~= "function" and notReleasedHandler ~= "ForceLoad" and notReleasedHandler ~= "Steal" then
-		error("[ProfileService]: Invalid notReleasedHandler")
+		error("Invalid notReleasedHandler")
 	end
 
 	if ProfileService.ServiceLocked == true then
@@ -1736,7 +1736,7 @@ function ProfileStore:LoadProfileAsync(profileKey, notReleasedHandler, useMock) 
 		if profileStore._ProfileStoreLookup == self._ProfileStoreLookup then
 			local loaded_profiles = isUserMock == true and profileStore._MockLoadedProfiles or profileStore._LoadedProfiles
 			if loaded_profiles[profileKey] ~= nil then
-				error("[ProfileService]: Profile " .. IdentifyProfile(self._ProfileStoreName, self._ProfileStoreScope, profileKey) .. " is already loaded in this session")
+				error("Profile " .. IdentifyProfile(self._ProfileStoreName, self._ProfileStoreScope, profileKey) .. " is already loaded in this session")
 				-- Are you using Profile:Release() properly?
 			end
 		end
@@ -1968,10 +1968,10 @@ end
 
 function ProfileStore:GlobalUpdateProfileAsync(profileKey, updateHandler, useMock) --> [GlobalUpdates / nil] (updateHandler(GlobalUpdates))
 	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("[ProfileService]: Invalid profileKey")
+		error("Invalid profileKey")
 	end
 	if type(updateHandler) ~= "function" then
-		error("[ProfileService]: Invalid updateHandler")
+		error("Invalid updateHandler")
 	end
 
 	if ProfileService.ServiceLocked == true then
@@ -2018,7 +2018,7 @@ end
 
 function ProfileStore:ViewProfileAsync(profileKey, version, useMock) --> [Profile / nil]
 	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("[ProfileService]: Invalid profileKey")
+		error("Invalid profileKey")
 	end
 
 	if ProfileService.ServiceLocked == true then
@@ -2098,7 +2098,7 @@ end
 
 function ProfileStore:ProfileVersionQuery(profileKey, sortDirection, minDate, maxDate, useMock) --> [ProfileVersionQuery]
 	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("[ProfileService]: Invalid profileKey")
+		error("Invalid profileKey")
 	end
 
 	if ProfileService.ServiceLocked == true then
@@ -2108,21 +2108,21 @@ function ProfileStore:ProfileVersionQuery(profileKey, sortDirection, minDate, ma
 	WaitForPendingProfileStore(self)
 
 	if useMock == UseMockTag or UseMockDataStore == true then
-		error("[ProfileService]: :ProfileVersionQuery() is not supported in mock mode")
+		error(":ProfileVersionQuery() is not supported in mock mode")
 	end
 
 	-- Type check:
 	if sortDirection ~= nil and (typeof(sortDirection) ~= "EnumItem"
 		or sortDirection.EnumType ~= Enum.SortDirection) then
-		error("[ProfileService]: Invalid sortDirection (" .. tostring(sortDirection) .. ")")
+		error("Invalid sortDirection (" .. tostring(sortDirection) .. ")")
 	end
 
 	if minDate ~= nil and typeof(minDate) ~= "DateTime" and typeof(minDate) ~= "number" then
-		error("[ProfileService]: Invalid minDate (" .. tostring(minDate) .. ")")
+		error("Invalid minDate (" .. tostring(minDate) .. ")")
 	end
 
 	if maxDate ~= nil and typeof(maxDate) ~= "DateTime" and typeof(maxDate) ~= "number" then
-		error("[ProfileService]: Invalid maxDate (" .. tostring(maxDate) .. ")")
+		error("Invalid maxDate (" .. tostring(maxDate) .. ")")
 	end
 
 	minDate = typeof(minDate) == "DateTime" and minDate.UnixTimestampMillis or minDate
@@ -2150,7 +2150,7 @@ end
 
 function ProfileStore:WipeProfileAsync(profileKey, useMock) --> is_wipe_successful [bool]
 	if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-		error("[ProfileService]: Invalid profileKey")
+		error("Invalid profileKey")
 	end
 
 	if ProfileService.ServiceLocked == true then
@@ -2202,22 +2202,22 @@ function ProfileService.GetProfileStore(profileStoreIndex, profileTemplate) --> 
 		profileStoreName = profileStoreIndex.Name
 		profileStoreScope = profileStoreIndex.Scope
 	else
-		error("[ProfileService]: Invalid or missing profileStoreIndex")
+		error("Invalid or missing profileStoreIndex")
 	end
 
 	-- Type checking:
 	if profileStoreName == nil or type(profileStoreName) ~= "string" then
-		error("[ProfileService]: Missing or invalid \"Name\" parameter")
+		error("Missing or invalid \"Name\" parameter")
 	elseif string.len(profileStoreName) == 0 then
-		error("[ProfileService]: ProfileStore name cannot be an empty string")
+		error("ProfileStore name cannot be an empty string")
 	end
 
 	if profileStoreScope ~= nil and (type(profileStoreScope) ~= "string" or string.len(profileStoreScope) == 0) then
-		error("[ProfileService]: Invalid \"Scope\" parameter")
+		error("Invalid \"Scope\" parameter")
 	end
 
 	if type(profileTemplate) ~= "table" then
-		error("[ProfileService]: Invalid profileTemplate")
+		error("Invalid profileTemplate")
 	end
 
 	local profileStore
