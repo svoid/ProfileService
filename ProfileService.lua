@@ -1005,6 +1005,7 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 						if type(activeSession) == "table" then
 							sessionOwnsProfile = IsThisSession(activeSession) and sessionLoadCount == lastSessionLoadCount
 						end
+						
 						if type(forceLoadSession) == "table" then
 							forceLoadPending = not IsThisSession(forceLoadSession)
 						end
@@ -1100,20 +1101,22 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 				sessionOwnsProfile = IsThisSession(activeSession) and sessionLoadCount == lastSessionLoadCount
 			end
 
-			local is_active = profile:IsActive()
+			local isActive = profile:IsActive()
 			if sessionOwnsProfile == true then
 				-- 6) Check for new global updates: --
-				if is_active == true then -- Profile could've been released before the saving thread finished
+				if isActive then -- Profile could've been released before the saving thread finished
 					CheckForNewGlobalUpdates(profile, oldGlobalUpdatesData, newGlobalUpdatesData)
 				end
 			else
 				-- Session no longer owns the profile:
 				-- 7) Release profile if it hasn't been released yet: --
-				if is_active == true then
+				if isActive then
 					ReleaseProfileInternally(profile)
 				end
+				
 				-- Cleanup reference in custom write queue:
 				CustomWriteQueueMarkForCleanup(profile._ProfileStore._ProfileStoreLookup, profile._ProfileKey)
+				
 				-- Hop ready listeners:
 				if profile._HopReady == false then
 					profile._HopReady = true
@@ -1131,6 +1134,23 @@ local function SaveProfileAsync(profile, releaseFromSession, isOverwriting)
 		end
 	end
 	ActiveProfileSaveJobs -= 1
+end
+
+
+local function expectNonEmptyString(value)
+	local vtype = type(value)
+	if vtype ~= "string" then
+		error(string.format("'string' expected, got '%s'", vtype), 2)
+	elseif string.len(value) == 0 then
+		error("expected non-empty string", 2)
+	end
+end
+
+local function expectType(value, expected)
+	local vtype = type(value)
+	if vtype ~= expected then
+		error(string.format("'%s' expected, got '%s'", expected, vtype), 2)
+	end
 end
 
 ----- Public functions -----
@@ -1210,16 +1230,13 @@ local GlobalUpdates = {} do
 
 	-- ONLY WHEN FROM "Profile.GlobalUpdates":
 	function GlobalUpdates:ListenToNewActiveUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
-		if type(listener) ~= "function" then
-			error("Only a function can be set as listener in GlobalUpdates:ListenToNewActiveUpdate()")
-		end
+		expectType(listener, "function")
 
-		local profile = self._Profile
 		if self._UpdateHandlerMode == true then
 			error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
 		elseif self._NewActiveUpdateListeners == nil then
 			error("Can't listen to new global updates in view mode")
-		elseif profile:IsActive() == false then -- Check if profile is expired
+		elseif not self._Profile:IsActive() then -- Check if profile is expired
 			-- Do not connect listener if the profile is expired
 			return {Disconnect = EMPTY_FUNCTION}
 		end
@@ -1229,16 +1246,13 @@ local GlobalUpdates = {} do
 	end
 
 	function GlobalUpdates:ListenToNewLockedUpdate(listener) --> [ScriptConnection] listener(updateId, updateData)
-		if type(listener) ~= "function" then
-			error("Only a function can be set as listener in GlobalUpdates:ListenToNewLockedUpdate()")
-		end
+		expectType(listener, "function")
 
-		local profile = self._Profile
 		if self._UpdateHandlerMode == true then
 			error("Can't listen to new global updates in ProfileStore:GlobalUpdateProfileAsync()")
 		elseif self._NewLockedUpdateListeners == nil then
 			error("Can't listen to new global updates in view mode")
-		elseif profile:IsActive() == false then -- Check if profile is expired
+		elseif not self._Profile:IsActive() then -- Check if profile is expired
 			-- Do not connect listener if the profile is expired
 			return {Disconnect = EMPTY_FUNCTION}
 		end
@@ -1248,16 +1262,13 @@ local GlobalUpdates = {} do
 	end
 
 	function GlobalUpdates:LockActiveUpdate(updateId)
-		if type(updateId) ~= "number" then
-			error("Invalid updateId")
-		end
+		expectType(updateId, "number")
 
-		local profile = self._Profile
 		if self._UpdateHandlerMode == true then
 			error("Can't lock active global updates in ProfileStore:GlobalUpdateProfileAsync()")
 		elseif self._PendingUpdateLock == nil then
 			error("Can't lock active global updates in view mode")
-		elseif profile:IsActive() == false then -- Check if profile is expired
+		elseif not self._Profile:IsActive() then -- Check if profile is expired
 			error("PROFILE EXPIRED - Can't lock active global updates")
 		end
 
@@ -1288,16 +1299,13 @@ local GlobalUpdates = {} do
 	end
 
 	function GlobalUpdates:ClearLockedUpdate(updateId)
-		if type(updateId) ~= "number" then
-			error("Invalid updateId")
-		end
+		expectType(updateId, "number")
 
-		local profile = self._Profile
 		if self._UpdateHandlerMode == true then
 			error("Can't clear locked global updates in ProfileStore:GlobalUpdateProfileAsync()")
 		elseif self._PendingUpdateClear == nil then
 			error("Can't clear locked global updates in view mode")
-		elseif profile:IsActive() == false then -- Check if profile is expired
+		elseif not self._Profile:IsActive() then -- Check if profile is expired
 			error("PROFILE EXPIRED - Can't clear locked global updates")
 		end
 
@@ -1329,9 +1337,7 @@ local GlobalUpdates = {} do
 
 	-- EXPOSED TO "updateHandler" DURING ProfileStore:GlobalUpdateProfileAsync() CALL
 	function GlobalUpdates:AddActiveUpdate(updateData)
-		if type(updateData) ~= "table" then
-			error("Invalid updateData")
-		end
+		expectType(updateData, "table")
 
 		if self._NewActiveUpdateListeners ~= nil then
 			error("Can't add active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
@@ -1348,13 +1354,8 @@ local GlobalUpdates = {} do
 	end
 
 	function GlobalUpdates:ChangeActiveUpdate(updateId, updateData)
-		if type(updateId) ~= "number" then
-			error("Invalid updateId")
-		end
-
-		if type(updateData) ~= "table" then
-			error("Invalid updateData")
-		end
+		expectType(updateId, "number")
+		expectType(updateData, "table")
 
 		if self._NewActiveUpdateListeners ~= nil then
 			error("Can't change active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
@@ -1384,10 +1385,8 @@ local GlobalUpdates = {} do
 	end
 
 	function GlobalUpdates:ClearActiveUpdate(updateId)
-		if type(updateId) ~= "number" then
-			error("Invalid updateId argument")
-		end
-
+		expectType(updateId, "number")
+		
 		if self._NewActiveUpdateListeners ~= nil then
 			error("Can't clear active global updates in loaded Profile; Use ProfileStore:GlobalUpdateProfileAsync()")
 		elseif self._UpdateHandlerMode ~= true then
@@ -1486,14 +1485,14 @@ local Profile = {} do
 		return self
 	end
 	
-	function Profile:IsActive() --> [bool]
+	function Profile:IsActive() : boolean
 		local loadedProfiles = self._IsUserMock == true
 			and self._ProfileStore._MockLoadedProfiles
 			or self._ProfileStore._LoadedProfiles
 		return loadedProfiles[self._ProfileKey] == self
 	end
 
-	function Profile:GetMetaTag(tagName) --> value
+	function Profile:GetMetaTag(tagName) : any
 		local metaData = self.MetaData
 		if metaData == nil then
 			return nil
@@ -1503,12 +1502,7 @@ local Profile = {} do
 	end
 
 	function Profile:SetMetaTag(tagName, value)
-		if type(tagName) ~= "string" then
-			error("tagName must be a string")
-		elseif string.len(tagName) == 0 then
-			error("Invalid tagName")
-		end
-		
+		expectNonEmptyString(tagName)
 		self.MetaData.MetaTags[tagName] = value
 	end
 
@@ -1517,15 +1511,13 @@ local Profile = {} do
 	end
 
 	function Profile:ListenToRelease(listener) --> [ScriptConnection] (placeId / nil, gameJobId / nil)
-		if type(listener) ~= "function" then
-			error("Only a function can be set as listener in Profile:ListenToRelease()")
-		end
+		expectType(listener, "function")
 		
 		if self._IsViewMode then
 			return {Disconnect = EMPTY_FUNCTION}
 		end
 		
-		if self:IsActive() == false then
+		if not self:IsActive() then
 			-- Call release listener immediately if profile is expired
 			local placeId
 			local gameJobId
@@ -1546,7 +1538,7 @@ local Profile = {} do
 			error("Can't save Profile in view mode - Should you be calling :OverwriteAsync() instead?")
 		end
 		
-		if self:IsActive() == false then
+		if not self:IsActive() then
 			warn("[ProfileService]: Attempted saving an inactive profile "
 				.. self:Identify() .. "; Traceback:\n" .. debug.traceback())
 			return
@@ -1566,15 +1558,13 @@ local Profile = {} do
 	function Profile:Release()
 		if self._IsViewMode then return end
 		
-		if self:IsActive() == true then
+		if self:IsActive() then
 			task.spawn(SaveProfileAsync, self, true) -- Call save function in a new thread with releaseFromSession = true
 		end
 	end
 
 	function Profile:ListenToHopReady(listener) --> [ScriptConnection] ()
-		if type(listener) ~= "function" then
-			error("Only a function can be set as listener in Profile:ListenToHopReady()")
-		end
+		expectType(listener, "function")
 		
 		if self._IsViewMode then
 			return {Disconnect = EMPTY_FUNCTION}
@@ -1583,9 +1573,9 @@ local Profile = {} do
 		if self._HopReady == true then
 			task.spawn(listener)
 			return {Disconnect = EMPTY_FUNCTION}
-		else
-			return self._HopReadyListeners:Connect(listener)
 		end
+		
+		return self._HopReadyListeners:Connect(listener)
 	end
 
 	function Profile:AddUserId(userId) -- Associates userId with profile (GDPR compliance)
@@ -1618,7 +1608,7 @@ local Profile = {} do
 		end
 	end
 
-	function Profile:Identify() --> [string]
+	function Profile:Identify() : string
 		return IdentifyProfile(
 			self._ProfileStore._ProfileStoreName,
 			self._ProfileStore._ProfileStoreScope,
@@ -1881,11 +1871,7 @@ local ProfileStore = {} do
 			error("Profile template not set - ProfileStore:LoadProfileAsync() locked for this ProfileStore")
 		end
 
-		if type(profileKey) ~= "string" then
-			error("profileKey must be a string")
-		elseif string.len(profileKey) == 0 then
-			error("Invalid profileKey")
-		end
+		expectNonEmptyString(profileKey)
 
 		if type(notReleasedHandler) ~= "function" and notReleasedHandler ~= "ForceLoad" and notReleasedHandler ~= "Steal" then
 			error("Invalid notReleasedHandler")
@@ -2120,12 +2106,8 @@ local ProfileStore = {} do
 	end
 
 	function ProfileStore:GlobalUpdateProfileAsync(profileKey, updateHandler, useMock) --> [GlobalUpdates / nil] (updateHandler(GlobalUpdates))
-		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-			error("Invalid profileKey")
-		end
-		if type(updateHandler) ~= "function" then
-			error("Invalid updateHandler")
-		end
+		expectNonEmptyString(profileKey)
+		expectType(updateHandler, "function")
 
 		if ProfileService.ServiceLocked == true then
 			return nil
@@ -2166,9 +2148,7 @@ local ProfileStore = {} do
 	end
 
 	function ProfileStore:ViewProfileAsync(profileKey, version, useMock) --> [Profile / nil]
-		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-			error("Invalid profileKey")
-		end
+		expectNonEmptyString(profileKey)
 
 		if ProfileService.ServiceLocked == true then
 			return nil
@@ -2227,9 +2207,7 @@ local ProfileStore = {} do
 	end
 
 	function ProfileStore:ProfileVersionQuery(profileKey, sortDirection, minDate, maxDate, useMock) --> [ProfileVersionQuery]
-		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-			error("Invalid profileKey")
-		end
+		expectNonEmptyString(profileKey)
 
 		if ProfileService.ServiceLocked == true then
 			return setmetatable({}, ProfileVersionQuery) -- Silently fail :Next() requests
@@ -2262,9 +2240,7 @@ local ProfileStore = {} do
 	end
 
 	function ProfileStore:WipeProfileAsync(profileKey, useMock) --> is_wipe_successful [bool]
-		if type(profileKey) ~= "string" or string.len(profileKey) == 0 then
-			error("Invalid profileKey")
-		end
+		expectNonEmptyString(profileKey)
 
 		if ProfileService.ServiceLocked == true then
 			return false
@@ -2321,19 +2297,14 @@ function ProfileService.GetProfileStore(profileStoreIndex, profileTemplate) --> 
 	end
 
 	-- Type checking:
-	if profileStoreName == nil or type(profileStoreName) ~= "string" then
-		error("Missing or invalid \"Name\" parameter")
-	elseif string.len(profileStoreName) == 0 then
-		error("ProfileStore name cannot be an empty string")
+
+	expectNonEmptyString(profileStoreName)
+
+	if profileStoreScope ~= nil then
+		expectNonEmptyString(profileStoreScope)
 	end
 
-	if profileStoreScope ~= nil and (type(profileStoreScope) ~= "string" or string.len(profileStoreScope) == 0) then
-		error("Invalid \"Scope\" parameter")
-	end
-
-	if type(profileTemplate) ~= "table" then
-		error("Invalid profileTemplate")
-	end
+	expectType(profileTemplate, "table")
 
 	local profileStore = ProfileStore.new(profileStoreName, profileStoreScope, profileTemplate)
 
@@ -2480,7 +2451,7 @@ task.spawn(function()
 
 			-- Release the profiles; Releasing profiles can trigger listeners that release other profiles, so check active state:
 			for _, profile in ipairs(active_profiles) do
-				if profile:IsActive() == true then
+				if profile:IsActive() then
 					onCloseSaveJobCount += 1
 					task.spawn(function() -- Save profile on new thread
 						SaveProfileAsync(profile, true)
