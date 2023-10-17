@@ -1150,7 +1150,15 @@ local GlobalUpdates = {} do
 		
 		_UpdateHandlerMode = true / nil, -- [bool / nil]
 	--]]
+	
+	function GlobalUpdates.new(updatesLatest)
+		local self = setmetatable({}, GlobalUpdates)
 
+		self._UpdatesLatest = updatesLatest
+		
+		return self
+	end
+	
 	-- ALWAYS PUBLIC:
 	function GlobalUpdates:GetActiveUpdates() --> [table] {{updateId, updateData}, ...}
 		local queryList = {}
@@ -1622,12 +1630,9 @@ local Profile = {} do
 		if not self._IsViewMode then
 			error(":ClearGlobalUpdates() can only be used in view mode")
 		end
-
-		local globalUpdatesObject = {
-			_UpdatesLatest = {0, {}},
-			_Profile = self,
-		}
-		setmetatable(globalUpdatesObject, GlobalUpdates)
+		
+		local globalUpdatesObject = GlobalUpdates.new({0, {}})
+		globalUpdatesObject._Profile = self
 
 		self.GlobalUpdates = globalUpdatesObject
 	end
@@ -2007,6 +2012,7 @@ local ProfileStore = {} do
 					return nil -- Load job yoinked
 				end
 			end
+			
 			-- Handle load_data:
 			if loadedData ~= nil and keyInfo ~= nil then
 				local activeSession = loadedData.MetaData.ActiveSession
@@ -2018,17 +2024,14 @@ local ProfileStore = {} do
 						
 						-- Case #1: Profile is now taken by this session:
 						-- Create Profile object:
-						local globalUpdatesObject = {
-							_UpdatesLatest = loadedData.GlobalUpdates,
-							_PendingUpdateLock = {},
-							_PendingUpdateClear = {},
 
-							_NewActiveUpdateListeners = Madwork.NewScriptSignal(),
-							_NewLockedUpdateListeners = Madwork.NewScriptSignal(),
+						local globalUpdatesObject = GlobalUpdates.new(loadedData.GlobalUpdates)
+						
+						globalUpdatesObject._PendingUpdateLock = {}
+						globalUpdatesObject._PendingUpdateClear = {}
 
-							_Profile = nil,
-						}
-						setmetatable(globalUpdatesObject, GlobalUpdates)
+						globalUpdatesObject._NewActiveUpdateListeners = Madwork.NewScriptSignal()
+						globalUpdatesObject._NewLockedUpdateListeners = Madwork.NewScriptSignal()
 						
 						local profile = Profile.new_fromLoad(self, loadedData, keyInfo, globalUpdatesObject, profileKey, isUserMock)
 						
@@ -2139,12 +2142,11 @@ local ProfileStore = {} do
 					ExistingProfileHandle = nil,
 					MissingProfileHandle = nil,
 					EditProfile = function(latestData)
+						
 						-- Running updateHandler:
-						local globalUpdatesObject = {
-							_UpdatesLatest = latestData.GlobalUpdates,
-							_UpdateHandlerMode = true,
-						}
-						setmetatable(globalUpdatesObject, GlobalUpdates)
+						local globalUpdatesObject = GlobalUpdates.new(latestData.GlobalUpdates)
+						globalUpdatesObject._UpdateHandlerMode = true
+						
 						updateHandler(globalUpdatesObject)
 					end,
 				},
@@ -2154,11 +2156,7 @@ local ProfileStore = {} do
 			-- Handling loadedData:
 			if loadedData ~= nil then
 				-- Return GlobalUpdates object (Update successful):
-				local globalUpdatesObject = {
-					_UpdatesLatest = loadedData.GlobalUpdates,
-				}
-				setmetatable(globalUpdatesObject, GlobalUpdates)
-				return globalUpdatesObject
+				return GlobalUpdates.new(loadedData.GlobalUpdates)
 			else
 				task.wait() -- Overload prevention
 			end
@@ -2214,12 +2212,7 @@ local ProfileStore = {} do
 				end
 
 				-- Create Profile object:
-				local globalUpdatesObject = {
-					_UpdatesLatest = loadedData.GlobalUpdates, -- {0, {}}
-					_Profile = nil,
-				}
-				setmetatable(globalUpdatesObject, GlobalUpdates)
-				
+				local globalUpdatesObject = GlobalUpdates.new(loadedData.GlobalUpdates)
 				local profile = Profile.new_fromView(self, loadedData, keyInfo, globalUpdatesObject, profileKey)
 				
 				globalUpdatesObject._Profile = profile
