@@ -361,14 +361,8 @@ do
 	end
 
 	-- Madwork framework namespace:
-
 	Madwork = {
-		NewScriptSignal = MadworkScriptSignal.NewScriptSignal,
-		ConnectToOnClose = function(task, runInStudioMode)
-			if game:GetService("RunService"):IsStudio() == false or runInStudioMode == true then
-				game:BindToClose(task)
-			end
-		end,
+		NewScriptSignal = MadworkScriptSignal.NewScriptSignal
 	}
 
 end
@@ -2375,7 +2369,7 @@ end
 
 ----- Initialize -----
 
-if IsStudio == true then
+if IsStudio then
 	IsLiveCheckActive = true
 	task.spawn(function()
 		local status, message = pcall(function()
@@ -2477,8 +2471,10 @@ end)
 -- Release all loaded profiles when the server is shutting down:
 task.spawn(function()
 	WaitForLiveAccessCheck()
-	Madwork.ConnectToOnClose(
-		function()
+	
+	local runInStudioMode = UseMockDataStore == false -- Always run this OnClose task if using Roblox API services
+	if not IsStudio or runInStudioMode then
+		game:BindToClose(function()
 			ProfileService.ServiceLocked = true
 			-- 1) Release all active profiles: --
 			-- Clone AutoSaveList to a new table because AutoSaveList changes when profiles are released:
@@ -2506,9 +2502,8 @@ task.spawn(function()
 			end
 
 			return -- We're done!
-		end,
-		UseMockDataStore == false -- Always run this OnClose task if using Roblox API services
-	)
+		end)
+	end
 end)
 
 return ProfileService
