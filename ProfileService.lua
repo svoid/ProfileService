@@ -792,7 +792,7 @@ local function StandardProfileUpdateAsyncDataStore(profileStore, profileKey, upd
 								getData, getKeyInfo = profileStore._GlobalDataStore:GetVersionAsync(profileKey, version)
 							end)
 							if success == false and type(errorMessage) == "string" and string.find(errorMessage, "not valid") ~= nil then
-								warn("[ProfileService]: Passed version argument is not valid; Traceback:\n" .. debug.traceback())
+								warn("Passed version argument is not valid; Traceback:\n" .. debug.traceback())
 							end
 						else
 							getData, getKeyInfo = profileStore._GlobalDataStore:GetAsync(profileKey)
@@ -1539,8 +1539,8 @@ local Profile = {} do
 		end
 		
 		if not self:IsActive() then
-			warn("[ProfileService]: Attempted saving an inactive profile "
-				.. self:Identify() .. "; Traceback:\n" .. debug.traceback())
+			warn("Attempted saving an inactive profile "
+				.. self:Identify() .. ";\n" .. debug.traceback())
 			return
 		end
 		
@@ -1580,8 +1580,8 @@ local Profile = {} do
 
 	function Profile:AddUserId(userId) -- Associates userId with profile (GDPR compliance)
 		if type(userId) ~= "number" or userId % 1 ~= 0 then
-			warn("[ProfileService]: Invalid UserId argument for :AddUserId() ("
-				.. tostring(userId) .. "); Traceback:\n" .. debug.traceback())
+			warn("Invalid UserId argument for :AddUserId() ("
+				.. tostring(userId) .. ");\n" .. debug.traceback())
 			return
 		end
 
@@ -1596,8 +1596,8 @@ local Profile = {} do
 
 	function Profile:RemoveUserId(userId) -- Unassociates userId with profile (safe function)
 		if type(userId) ~= "number" or userId % 1 ~= 0 then
-			warn("[ProfileService]: Invalid UserId argument for :RemoveUserId() ("
-				.. tostring(userId) .. "); Traceback:\n" .. debug.traceback())
+			warn("Invalid UserId argument for :RemoveUserId() ("
+				.. tostring(userId) .. ");\n" .. debug.traceback())
 			return
 		end
 
@@ -2085,9 +2085,9 @@ local ProfileStore = {} do
 								task.wait() -- Overload prevention
 							else
 								error(
-									"[ProfileService]: Invalid return from notReleasedHandler (\"" .. tostring(handlerResult) .. "\")(" .. type(handlerResult) .. ");" ..
+									"Invalid return from notReleasedHandler (\"" .. tostring(handlerResult) .. "\")(" .. type(handlerResult) .. ");" ..
 										"\n" .. IdentifyProfile(self._ProfileStoreName, self._ProfileStoreScope, profileKey) ..
-										" Traceback:\n" .. debug.traceback()
+										"\n" .. debug.traceback()
 								)
 							end
 						end
